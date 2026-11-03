@@ -71,6 +71,10 @@ CREATE TABLE IF NOT EXISTS free_usage (
     day TEXT PRIMARY KEY,
     count INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS admin_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 """
 
 RESUMABLE_STATUSES = ("running", "interrupted", "paused")
@@ -107,6 +111,19 @@ class Database:
 
     def all_settings(self) -> dict:
         return {key: self.get_setting(key) for key in DEFAULT_SETTINGS}
+
+    def get_admin_setting(self, key: str) -> str | None:
+        row = self.conn.execute("SELECT value FROM admin_settings WHERE key = ?", (key,)).fetchone()
+        return row["value"] if row else None
+
+    def set_admin_setting(self, key: str, value: str) -> None:
+        self.conn.execute("INSERT INTO admin_settings (key, value) VALUES (?, ?) "
+                          "ON CONFLICT(key) DO UPDATE SET value = excluded.value", (key, str(value)))
+        self.conn.commit()
+
+    def all_admin_settings(self) -> dict:
+        return {r["key"]: r["value"]
+                for r in self.conn.execute("SELECT key, value FROM admin_settings").fetchall()}
 
     def free_validations_today(self, day: str) -> int:
         row = self.conn.execute("SELECT count FROM free_usage WHERE day = ?", (day,)).fetchone()

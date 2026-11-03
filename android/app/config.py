@@ -7,7 +7,7 @@ from dotenv import dotenv_values, set_key, unset_key
 
 APP_NAME = "PHONEINTEL"
 APP_VERSION = "1.1.0"
-FREE_VALIDATION_DAILY_LIMIT = 2
+FREE_VALIDATION_DAILY_LIMIT = 5
 API_KEY_VAR = "TELNYX_API_KEY"
 TELNYX_BASE_URL = "https://api.telnyx.com/v2"
 

@@ -4,7 +4,7 @@ This folder contains a native Android version built with Kivy and packaged with 
 python-for-android. It reuses the same engine modules as the terminal app (validator,
 classifier, Telnyx client, database, bulk processor, exporter).
 
-The Lookup screen also offers a **Free offline check** (no API key, 2/day) that validates format, region and a line-type estimate from bundled numbering-plan data without contacting Telnyx.
+The Lookup screen also offers a **Free offline check** (no API key, 5/day) that validates format, region and a line-type estimate from bundled numbering-plan data without contacting Telnyx.
 
 **Screens:** Home (overview stats, line-type breakdown), Lookup, Bulk (pick a CSV/XLSX/TXT
 file, confirm the column, review the cost estimate, run, stop/resume), History (search, details,
@@ -61,6 +61,28 @@ the Telnyx messaging/number-hosting integration (`telnyx_messaging.py`, mocked i
 the **Letter of Authorization Telnyx requires to text-enable a number**, a public inbound-SMS
 webhook, and the operator verification running in a secured admin service rather than the
 bundled CLI. Telnyx credentials stay operator-side; users never see or enter an API key.
+
+### Super-admin configuration (fallback provider & SMS pricing)
+
+Operator-only settings live in the `admin_settings` table and are edited through
+`AdminConfig` (`admin_config.py`) - from the admin portal in a real deployment, or the
+bundled `terminal/admin_tool.py` CLI. End users never see or change these.
+
+* **Fallback validation provider**: the free offline validator is primary. If it is ever
+  unavailable/errors and a provider (`twilio` or `telnyx`) is configured, the engine falls
+  back to that provider for a carrier-grade line type. Note: provider line-type lookups are
+  **billable** (Twilio Lookup line-type intelligence and Telnyx number lookup both charge per
+  query) - only the offline validator is free. Provider credentials stay in the operator's
+  environment (`TWILIO_ACCOUNT_SID`/`TWILIO_AUTH_TOKEN`, `TELNYX_API_KEY`), never in the app.
+* **SMS pricing / margins**: `billable = provider_cost * (1 + margin_percent/100)`, editable
+  per direction. Defaults: **110%** margin on receiving, **200%** on sending (sending is off
+  until `sms_send_enabled` is turned on and a provider that sends is wired up). Currency and
+  both wholesale costs are editable too.
+
+The free offline check **cannot reliably tell landline from wireless** in markets with number
+portability (e.g. the US, where most geographic numbers resolve to "fixed line or mobile").
+That distinction needs a real-time carrier lookup - the paid Telnyx path, or the configured
+provider fallback.
 
 ### Engine code
 

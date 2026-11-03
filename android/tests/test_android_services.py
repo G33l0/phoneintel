@@ -103,11 +103,13 @@ def test_stale_running_job_recovered_on_start(service, tmp_path):
 def test_free_validation_offline_and_rate_limited(service):
     # free validation needs no API key
     assert not service.has_key()
-    assert service.free_validations_remaining() == 2
+    from config import FREE_VALIDATION_DAILY_LIMIT
+    limit = FREE_VALIDATION_DAILY_LIMIT
+    assert service.free_validations_remaining() == limit
     o1 = service.free_validate("(650) 253-0000")
-    assert o1.allowed and o1.result.valid and o1.result.source == "offline" and o1.remaining == 1
-    o2 = service.free_validate("+44 20 7946 0958")
-    assert o2.allowed and o2.remaining == 0
-    o3 = service.free_validate("212-555-1234")
-    assert not o3.allowed and o3.result is None
+    assert o1.allowed and o1.result.valid and o1.result.source == "offline" and o1.remaining == limit - 1
+    for _ in range(limit - 1):
+        service.free_validate("+44 20 7946 0958")
+    blocked = service.free_validate("212-555-1234")
+    assert not blocked.allowed and blocked.result is None
     assert service.free_validations_remaining() == 0

@@ -1,12 +1,16 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+import os
+
+from admin_config import AdminConfig
 from classifier import LookupResult, LookupStatus, failed_result, invalid_result, parse_lookup_response
 from config import FREE_VALIDATION_DAILY_LIMIT, AppConfig
 from database import Database
 from free_validate import FreeValidationResult, validate_offline
 from telnyx_client import AuthenticationError, RateLimiter, TelnyxClient, TelnyxError
 from validator import ValidationResult, normalize
+import validation_provider
 
 
 @dataclass
@@ -49,6 +53,7 @@ class PhoneIntelEngine:
         self.db = db
         self.client = client
         self.settings = settings
+        self.admin = AdminConfig(db)
 
     @classmethod
     def from_config(cls, config: AppConfig, db: Database | None = None) -> "PhoneIntelEngine":
@@ -62,7 +67,48 @@ class PhoneIntelEngine:
         return normalize(raw, self.settings.default_region)
 
     def free_validate(self, raw) -> FreeValidationResult:
-        return validate_offline(raw, self.settings.default_region)
+        return self._free_validate_with_fallback(raw)
+
+    def _free_validate_with_fallback(self, raw) -> FreeValidationResult:
+        """Offline first; only if the offline validator errors do we try a configured provider."""
+        try:
+            return validate_offline(raw, self.settings.default_region)
+        except Exception:
+            fallback = self._provider_validate(raw)
+            if fallback is not None:
+                return fallback
+            return FreeValidationResult(
+                "" if raw is None else str(raw), False,
+                error="Validation is temporarily unavailable. Please try again shortly.")
+
+    def _provider_credentials(self, provider: str) -> dict:
+        if provider == "twilio":
+            return {"account_sid": os.environ.get("TWILIO_ACCOUNT_SID", ""),
+                    "auth_token": os.environ.get("TWILIO_AUTH_TOKEN", "")}
+        if provider == "telnyx":
+            key = os.environ.get("TELNYX_API_KEY", "")
+            return {"api_key": key}
+        return {}
+
+    def _provider_validate(self, raw) -> FreeValidationResult | None:
+        provider = self.admin.fallback_provider()
+        if provider == "none":
+            return None
+        check = normalize(raw, self.settings.default_region)
+        if not check.valid:
+            return FreeValidationResult("" if raw is None else str(raw), False,
+                                        error=check.error or "Invalid number")
+        try:
+            result = validation_provider.lookup(provider, check.e164,
+                                                self._provider_credentials(provider))
+        except validation_provider.ProviderError:
+            return None
+        return FreeValidationResult(
+            input=check.raw, valid=result.valid, e164=result.e164 or check.e164,
+            country=check.country, region=None, national_format=None,
+            line_type_hint=result.line_type, classification_hint=result.classification_hint,
+            source=f"provider:{result.source}",
+            note=f"Carrier lookup via {result.source} fallback (billable).")
 
     def free_validations_remaining(self) -> int:
         day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -75,7 +121,7 @@ class PhoneIntelEngine:
         if raw is None or not str(raw).strip():
             return FreeValidationOutcome(
                 allowed=True, remaining=self.free_validations_remaining(), limit=limit,
-                result=validate_offline(raw, self.settings.default_region))
+                result=self._free_validate_with_fallback(raw))
         allowed, remaining = self.db.try_consume_free_validation(day, limit)
         if not allowed:
             return FreeValidationOutcome(
@@ -83,7 +129,7 @@ class PhoneIntelEngine:
                 message=f"Free validation limit reached ({limit}/day). Try again tomorrow (UTC).")
         return FreeValidationOutcome(
             allowed=True, remaining=remaining, limit=limit,
-            result=validate_offline(raw, self.settings.default_region))
+            result=self._free_validate_with_fallback(raw))
 
     def cached(self, e164: str) -> tuple[int, LookupResult] | None:
         return self.db.cached_result(e164, self.settings.cache_days)

@@ -32,7 +32,7 @@ The first screen is the PHONEINTEL main menu.
 | 9 | Telnyx API Configuration | Set/remove API key (hidden input), tune concurrency, throttle, cache, cost |
 | 10 | Test API Connection | Calls `GET /v2/balance` to verify the key (no lookup charge) |
 | 11 | Application Information | Version, paths, data policy |
-| 12 | Free Phone Validation | Offline format/region/line-type estimate, no API key, limited to 2/day |
+| 12 | Free Phone Validation | Offline format/region/line-type estimate, no API key, limited to 5/day |
 | 13 | Exit | |
 
 ### Classifications
