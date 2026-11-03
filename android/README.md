@@ -35,7 +35,7 @@ in `terminal/`, run `python android/sync_core.py`; CI fails if the copies differ
 ### Building locally (Linux / WSL)
 
 ```sh
-pip install buildozer==1.6.0 cython==3.0.12
+pip install buildozer==1.6.0
 sudo apt install -y git zip unzip openjdk-17-jdk autoconf automake libtool pkg-config cmake \
     build-essential zlib1g-dev libncurses-dev libffi-dev libssl-dev
 cd android && buildozer android debug
