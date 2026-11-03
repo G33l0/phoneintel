@@ -7,20 +7,25 @@ title PHONEINTEL
 set "PYTHONUTF8=1"
 set "VENV_PY=.venv\Scripts\python.exe"
 
-if not exist "%VENV_PY%" (
-    call :find_python || goto :no_python
-    echo [PHONEINTEL] Creating virtual environment in .venv ...
-    "%PYTHON_EXE%" -m venv .venv || goto :setup_failed
-)
+rem Plain goto flow on purpose: variables inside a parenthesised block are expanded before it runs.
+if exist "%VENV_PY%" goto :deps
+call :find_python
+if errorlevel 1 goto :no_python
+echo [PHONEINTEL] Creating virtual environment in .venv using %PYTHON_EXE%
+"%PYTHON_EXE%" -m venv .venv
+if errorlevel 1 goto :setup_failed
 
+:deps
 fc /b requirements.txt ".venv\requirements.installed" >nul 2>nul
-if errorlevel 1 (
-    echo [PHONEINTEL] Installing requirements ...
-    "%VENV_PY%" -m pip install --disable-pip-version-check -q --upgrade pip || goto :setup_failed
-    "%VENV_PY%" -m pip install --disable-pip-version-check -q -r requirements.txt || goto :setup_failed
-    copy /y requirements.txt ".venv\requirements.installed" >nul
-)
+if not errorlevel 1 goto :run
+echo [PHONEINTEL] Installing requirements ...
+"%VENV_PY%" -m pip install --disable-pip-version-check -q --upgrade pip
+if errorlevel 1 goto :setup_failed
+"%VENV_PY%" -m pip install --disable-pip-version-check -q -r requirements.txt
+if errorlevel 1 goto :setup_failed
+copy /y requirements.txt ".venv\requirements.installed" >nul
 
+:run
 "%VENV_PY%" main.py %*
 exit /b %errorlevel%
 
