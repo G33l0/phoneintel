@@ -120,7 +120,6 @@ jobs:
       - name: Build debug APK
         working-directory: android
         env:
-          PIP_NO_BINARY: charset-normalizer
           # pip 26.3 is broken inside the p4a build venv (ImportError: capture_logging),
           # and p4a runs `pip install -U pip`. Constrain it to a working release.
           PIP_CONSTRAINT: ${{ github.workspace }}/pip-constraints.txt

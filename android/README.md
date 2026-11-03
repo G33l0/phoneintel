@@ -101,7 +101,7 @@ in `terminal/`, run `python android/sync_core.py`; CI fails if the copies differ
 pip install buildozer==1.6.0
 sudo apt install -y git zip unzip openjdk-17-jdk autoconf automake libtool pkg-config cmake \
     build-essential zlib1g-dev libncurses-dev libffi-dev libssl-dev
-cd android && PIP_NO_BINARY=charset-normalizer buildozer android debug
+cd android && buildozer android debug
 ```
 
 The APK appears in `android/bin/`. To run the Kivy UI on a desktop for development:
