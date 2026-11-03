@@ -119,6 +119,8 @@ jobs:
 
       - name: Build debug APK
         working-directory: android
+        env:
+          PIP_NO_BINARY: charset-normalizer
         run: yes | buildozer -v android debug 2>&1 | tee build.log; exit ${PIPESTATUS[1]}
 
       - name: Verify APK
