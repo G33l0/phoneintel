@@ -1,0 +1,12 @@
+# core modules are copied in by sync_core.py
+app/config.py
+app/validator.py
+app/classifier.py
+app/telnyx_client.py
+app/engine.py
+app/database.py
+app/bulk_processor.py
+app/exporter.py
+.buildozer/
+bin/
+__pycache__/

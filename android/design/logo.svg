@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0d1a12"/>
+      <stop offset="1" stop-color="#030604"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#00ff7a" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#00ff7a" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="sweep" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#00ff7a" stop-opacity="0"/>
+      <stop offset="1" stop-color="#00ff7a" stop-opacity="0.45"/>
+    </linearGradient>
+    <linearGradient id="phone" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7dffb5"/>
+      <stop offset="1" stop-color="#00e06a"/>
+    </linearGradient>
+    <filter id="neon" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="6" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <g id="bgshape"><rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <rect x="6" y="6" width="500" height="500" rx="106" fill="none" stroke="#00ff7a" stroke-opacity="0.18" stroke-width="4"/></g>
+  <g id="mark">
+    <circle cx="256" cy="256" r="190" fill="url(#glow)"/>
+    <g fill="none" stroke="#00ff7a" stroke-linecap="round">
+      <circle cx="256" cy="256" r="176" stroke-opacity="0.35" stroke-width="5"/>
+      <circle cx="256" cy="256" r="124" stroke-opacity="0.22" stroke-width="4"/>
+      <circle cx="256" cy="256" r="72" stroke-opacity="0.16" stroke-width="3"/>
+      <path d="M256 66v26M256 420v26M66 256h26M420 256h26" stroke-opacity="0.7" stroke-width="6"/>
+    </g>
+    <path d="M256 256 L256 80 A176 176 0 0 1 408.4 168 Z" fill="url(#sweep)" opacity="0.9"/>
+    <g filter="url(#neon)">
+      <path transform="translate(150 150) scale(8.8)" fill="url(#phone)"
+        d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/>
+      <g fill="none" stroke="#00ff7a" stroke-width="13" stroke-linecap="round">
+        <path d="M292 168a64 64 0 0 1 56 56"/>
+        <path d="M296 120a112 112 0 0 1 100 100" stroke-opacity="0.75"/>
+      </g>
+      <circle cx="392" cy="122" r="12" fill="#eafff2"/>
+    </g>
+  </g>
+</svg>

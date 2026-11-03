@@ -5,8 +5,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-import pandas as pd
-
 from classifier import EXPORT_BUCKETS, LookupResult, LookupStatus, export_bucket, utc_now
 from engine import PhoneIntelEngine
 from telnyx_client import AuthenticationError
@@ -27,6 +25,19 @@ ProgressCallback = Callable[[int, int, LookupResult | None], None]
 
 class BulkInputError(Exception):
     pass
+
+
+@dataclass
+class InputTable:
+    columns: list[str]
+    rows: list[dict]
+
+    def __len__(self) -> int:
+        return len(self.rows)
+
+    def column_values(self, column: str, limit: int | None = None) -> list[str]:
+        rows = self.rows if limit is None else self.rows[:limit]
+        return [row.get(column, "") for row in rows]
 
 
 @dataclass
@@ -84,7 +95,7 @@ def clean_path(text: str) -> Path:
     return Path(text.strip("'\"")).expanduser()
 
 
-def load_file(path: Path | str) -> pd.DataFrame:
+def load_file(path: Path | str) -> InputTable:
     path = Path(path)
     if not path.is_file():
         raise BulkInputError(f"File not found: {path}")
@@ -93,31 +104,56 @@ def load_file(path: Path | str) -> pd.DataFrame:
         raise BulkInputError(f"Unsupported file type '{suffix}'. Use CSV, XLSX or TXT.")
     if suffix == ".txt":
         return _load_txt(path)
-    frame = _read_table(path, header=0)
-    if any(normalize(c).valid for c in frame.columns):
-        frame = _read_table(path, header=None)
-        frame.columns = [f"column_{i + 1}" for i in range(len(frame.columns))]
-    if frame.empty:
+    raw_rows = _read_xlsx(path) if suffix == ".xlsx" else _read_csv(path)
+    raw_rows = [r for r in raw_rows if any(cell.strip() for cell in r)]
+    if not raw_rows:
+        raise BulkInputError("The file is empty")
+    width = max(len(r) for r in raw_rows)
+    raw_rows = [r + [""] * (width - len(r)) for r in raw_rows]
+    header = raw_rows[0]
+    if any(normalize(cell).valid for cell in header):
+        columns, body = [f"column_{i + 1}" for i in range(width)], raw_rows
+    else:
+        columns = [c.strip() or f"column_{i + 1}" for i, c in enumerate(header)]
+        body = raw_rows[1:]
+    if not body:
         raise BulkInputError("The file contains no data rows")
-    frame.columns = _unique_columns([str(c).strip() or f"column_{i + 1}" for i, c in enumerate(frame.columns)])
-    return frame
+    columns = _unique_columns(columns)
+    return InputTable(columns, [dict(zip(columns, r)) for r in body])
 
 
-def _read_table(path: Path, header) -> pd.DataFrame:
-    try:
-        if path.suffix.lower() == ".xlsx":
-            return pd.read_excel(path, dtype=str, keep_default_na=False, header=header, engine="openpyxl")
-        for encoding in ("utf-8-sig", "latin-1"):
-            try:
-                return pd.read_csv(path, dtype=str, keep_default_na=False, header=header,
-                                   sep=_sniff_delimiter(path, encoding), encoding=encoding)
-            except UnicodeDecodeError:
-                continue
-    except pd.errors.EmptyDataError as exc:
-        raise BulkInputError("The file is empty") from exc
-    except Exception as exc:
-        raise BulkInputError(f"Could not read file: {exc}") from exc
+def _read_csv(path: Path) -> list[list[str]]:
+    for encoding in ("utf-8-sig", "latin-1"):
+        try:
+            delimiter = _sniff_delimiter(path, encoding)
+            with path.open(encoding=encoding, newline="") as handle:
+                return [[cell for cell in row] for row in csv.reader(handle, delimiter=delimiter)]
+        except UnicodeDecodeError:
+            continue
+        except csv.Error as exc:
+            raise BulkInputError(f"Could not read CSV: {exc}") from exc
     raise BulkInputError("Could not decode file text")
+
+
+def _read_xlsx(path: Path) -> list[list[str]]:
+    from openpyxl import load_workbook
+    try:
+        workbook = load_workbook(path, read_only=True, data_only=True)
+    except Exception as exc:
+        raise BulkInputError(f"Could not read XLSX: {exc}") from exc
+    try:
+        sheet = workbook.worksheets[0]
+        return [[_cell_text(v) for v in row] for row in sheet.iter_rows(values_only=True)]
+    finally:
+        workbook.close()
+
+
+def _cell_text(value) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
 
 
 def _sniff_delimiter(path: Path, encoding: str) -> str:
@@ -129,7 +165,7 @@ def _sniff_delimiter(path: Path, encoding: str) -> str:
         return ","
 
 
-def _load_txt(path: Path) -> pd.DataFrame:
+def _load_txt(path: Path) -> InputTable:
     try:
         text = path.read_text(encoding="utf-8-sig")
     except UnicodeDecodeError:
@@ -137,7 +173,7 @@ def _load_txt(path: Path) -> pd.DataFrame:
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     if not lines:
         raise BulkInputError("The file contains no phone numbers")
-    return pd.DataFrame({TXT_COLUMN: lines})
+    return InputTable([TXT_COLUMN], [{TXT_COLUMN: line} for line in lines])
 
 
 def _unique_columns(columns: list[str]) -> list[str]:
@@ -149,10 +185,10 @@ def _unique_columns(columns: list[str]) -> list[str]:
     return result
 
 
-def detect_column(frame: pd.DataFrame, region: str = "US", sample: int = 50) -> str | None:
+def detect_column(table: InputTable, region: str = "US", sample: int = 50) -> str | None:
     scores = {}
-    for column in frame.columns:
-        values = [v for v in frame[column].head(sample).tolist() if str(v).strip()]
+    for column in table.columns:
+        values = [v for v in table.column_values(column, sample) if str(v).strip()]
         if not values:
             continue
         valid = sum(1 for v in values if normalize(v, region).valid)
@@ -166,12 +202,12 @@ def detect_column(frame: pd.DataFrame, region: str = "US", sample: int = 50) -> 
     return best if scores[best] >= 0.25 else None
 
 
-def prepare_job(frame: pd.DataFrame, column: str, source_file: str, region: str = "US") -> PreparedJob:
-    if column not in frame.columns:
+def prepare_job(table: InputTable, column: str, source_file: str, region: str = "US") -> PreparedJob:
+    if column not in table.columns:
         raise BulkInputError(f"Column '{column}' not found")
     first_seen: dict[str, int] = {}
     records = []
-    for index, row in enumerate(frame.to_dict(orient="records")):
+    for index, row in enumerate(table.rows):
         raw = "" if row[column] is None else str(row[column])
         check = normalize(raw, region)
         duplicate_of = None
@@ -187,7 +223,7 @@ def prepare_job(frame: pd.DataFrame, column: str, source_file: str, region: str 
             "duplicate_of": duplicate_of,
             "validation_error": check.error,
         })
-    return PreparedJob(str(source_file), column, [str(c) for c in frame.columns], records)
+    return PreparedJob(str(source_file), column, list(table.columns), records)
 
 
 def estimate(prepared: PreparedJob, engine: PhoneIntelEngine, force: bool = False) -> Estimate:

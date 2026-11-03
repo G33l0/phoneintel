@@ -9,3 +9,7 @@ data/*
 !data/.gitkeep
 exports/*
 !exports/.gitkeep
+android/.buildozer/
+android/bin/
+android/build.log
+ui-shots/

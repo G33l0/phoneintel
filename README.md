@@ -140,14 +140,8 @@ pip install -r requirements.txt
 python main.py
 ```
 
-`pandas` may have to compile on Termux, which is slow. If `pip install` fails on pandas/numpy,
-install the prebuilt packages and retry:
-
-```sh
-pkg install tur-repo
-pkg install python-numpy python-pandas
-pip install requests python-dotenv rich phonenumbers openpyxl
-```
+All dependencies are pure Python (CSV/XLSX handling uses the standard `csv` module and
+openpyxl), so nothing needs to compile on Termux.
 
 Files from shared storage are reachable as e.g. `/sdcard/Download/numbers.csv` or
 `~/storage/downloads/numbers.csv` after `termux-setup-storage`.
@@ -203,6 +197,51 @@ writing; prices vary by destination and volume, so check
 
 `PHONEINTEL_HOME=/some/dir` relocates `.env`, `data/` and `exports/` (useful for Termux shared
 storage or per-project workspaces).
+
+---
+
+## Android app (Kivy)
+
+`android/` contains a native Android version built with Kivy and packaged with buildozer /
+python-for-android. It reuses the same engine modules as the terminal app (validator,
+classifier, Telnyx client, database, bulk processor, exporter).
+
+**Screens:** Home (overview stats, line-type breakdown), Lookup, Bulk (pick a CSV/XLSX/TXT
+file, confirm the column, review the cost estimate, run, stop/resume), History (search, details,
+export Mobile/Landline/VoIP/Other) and Settings (API key, connection test, engine settings).
+The layout adapts to the screen: a bottom bar on phones, a side rail on tablets and in landscape,
+and content capped at a readable width.
+
+* Files are opened through Android's system file picker (Storage Access Framework), so the app
+  needs no storage permission on Android 10+.
+* Exports are saved to `Download/PHONEINTEL/` through MediaStore and can be shared from the app.
+* The API key is entered in the app and stored in the app's private storage. **No key is
+  bundled in the APK**, and Android backups are disabled for the app.
+
+### Getting the APK
+
+Every push runs the **Android APK** GitHub Actions workflow
+(`.github/workflows/android.yml`): tests → UI render check → APK build. Download the
+`phoneintel-apk` artifact from the workflow run, copy the `.apk` to your phone and install it
+(allow "Install unknown apps" for your browser/file manager). It is a debug-signed APK for
+sideloading, built for `arm64-v8a` and `armeabi-v7a`, Android 7.0+ (API 24).
+
+### Building locally (Linux / WSL)
+
+```sh
+pip install buildozer==1.6.0 cython==3.0.12
+sudo apt install -y git zip unzip openjdk-17-jdk autoconf automake libtool pkg-config cmake \
+    build-essential zlib1g-dev libncurses-dev libffi-dev libssl-dev
+python android/sync_core.py          # copy the shared engine into android/app
+cd android && buildozer android debug
+```
+
+The APK appears in `android/bin/`. To run the Kivy UI on a desktop for development:
+`pip install kivy==2.3.1 && python android/sync_core.py && python android/app/main.py`.
+
+The logo source is `android/design/logo.svg`; `android/design/render.js` regenerates the icon,
+adaptive icon layers and splash screen. Fonts: JetBrains Mono (SIL OFL 1.1) and Material Icons
+(Apache 2.0).
 
 ---
 

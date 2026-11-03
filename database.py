@@ -77,7 +77,7 @@ class Database:
         self.path = str(path)
         if self.path != ":memory:":
             Path(self.path).parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(self.path)
+        self.conn = sqlite3.connect(self.path, timeout=30)
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA foreign_keys = ON")
         self.conn.executescript(SCHEMA)
@@ -85,6 +85,12 @@ class Database:
 
     def close(self) -> None:
         self.conn.close()
+
+    def __enter__(self) -> "Database":
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
 
     def get_setting(self, key: str) -> str:
         row = self.conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()

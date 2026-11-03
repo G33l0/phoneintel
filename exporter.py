@@ -3,8 +3,6 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-import pandas as pd
-
 from bulk_processor import record_bucket
 from classifier import BUCKET_CLASSES, EXPORT_BUCKETS, LookupResult
 from database import Database
@@ -75,13 +73,40 @@ def write_csv(path: Path, columns: list[str], rows: list[dict]) -> None:
 
 
 def write_workbook(path: Path, columns: list[str], rows: list[dict]) -> None:
-    frame = pd.DataFrame(rows, columns=columns)
-    counts = frame["pi_bucket"].value_counts() if not frame.empty else pd.Series(dtype=int)
-    summary = pd.DataFrame({"bucket": list(EXPORT_BUCKETS) + ["PENDING"],
-                            "rows": [int(counts.get(b, 0)) for b in list(EXPORT_BUCKETS) + ["PENDING"]]})
-    with pd.ExcelWriter(path, engine="openpyxl") as writer:
-        frame.to_excel(writer, sheet_name="Results", index=False)
-        summary.to_excel(writer, sheet_name="Summary", index=False)
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+
+    workbook = Workbook(write_only=True)
+    header_font = Font(bold=True, color="00FF66")
+    header_fill = PatternFill("solid", fgColor="0B0F0C")
+    results = workbook.create_sheet("Results")
+    results.append([_header_cell(results, c, header_font, header_fill) for c in columns])
+    for row in rows:
+        results.append([_excel_value(results, row.get(c, "")) for c in columns])
+    summary = workbook.create_sheet("Summary")
+    summary.append([_header_cell(summary, c, header_font, header_fill) for c in ("bucket", "rows")])
+    buckets = list(EXPORT_BUCKETS) + ["PENDING"]
+    for bucket in buckets:
+        summary.append([bucket, sum(1 for r in rows if r.get("pi_bucket") == bucket)])
+    workbook.save(path)
+
+
+def _header_cell(sheet, value, font, fill):
+    from openpyxl.cell import WriteOnlyCell
+    cell = WriteOnlyCell(sheet, value=value)
+    cell.font, cell.fill = font, fill
+    return cell
+
+
+def _excel_value(sheet, value):
+    if value is None:
+        return ""
+    if isinstance(value, str) and value.startswith("="):
+        from openpyxl.cell import WriteOnlyCell
+        cell = WriteOnlyCell(sheet, value=value)
+        cell.data_type = "s"
+        return cell
+    return value
 
 
 def export_bucket_numbers(db: Database, bucket: str, export_root: Path) -> tuple[Path, int]:

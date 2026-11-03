@@ -1,0 +1,1135 @@
+#:import T theme.T
+#:import ICONS theme.ICONS
+#:import with_alpha theme.with_alpha
+#:import FONT_MONO theme.FONT_MONO
+#:import FONT_MONO_BOLD theme.FONT_MONO_BOLD
+#:import FONT_ICON theme.FONT_ICON
+#:import ScrollEffect kivy.effects.scroll.ScrollEffect
+#:import Window kivy.core.window.Window
+
+# ---------------------------------------------------------------- primitives
+
+<Label>:
+    shorten_from: "right"
+
+<Card>:
+    orientation: "vertical"
+    size_hint_y: None
+    height: self.minimum_height
+    padding: dp(18)
+    spacing: dp(12)
+    canvas.before:
+        Color:
+            rgba: self.bg
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [self.radius]
+        Color:
+            rgba: self.line
+        Line:
+            rounded_rectangle: (self.x, self.y, self.width, self.height, self.radius)
+            width: dp(1)
+
+<Text>:
+    size_hint_y: None
+    text_size: self.width, None
+    height: self.texture_size[1]
+    halign: "left"
+    valign: "middle"
+    markup: True
+    color: {"caption": T.muted, "label": T.muted, "title": T.text, "h1": T.accent, "mono": T.text, "value": T.text}.get(self.role, T.text)
+    font_size: {"caption": sp(13), "label": sp(12), "title": sp(17), "h1": sp(22), "mono": sp(15), "value": sp(15)}.get(self.role, sp(15))
+    font_name: FONT_MONO_BOLD if self.role in ("h1", "title") else (FONT_MONO if self.role in ("mono", "label") else "Roboto")
+    bold: False
+    line_height: 1.15
+
+<Icon>:
+    text: self.glyph
+    font_name: FONT_ICON
+    font_size: self.size_px
+    size_hint: None, None
+    size: self.size_px + dp(4), self.size_px + dp(4)
+    halign: "center"
+    valign: "middle"
+    color: T.accent
+
+<Spacer>:
+    size_hint: 1, 1
+
+<AppButton>:
+    size_hint_y: None
+    height: dp(44) if self.compact else dp(52)
+    padding: [dp(14), 0]
+    spacing: dp(8)
+    canvas.before:
+        Color:
+            rgba: self.bg_color
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(14)]
+        Color:
+            rgba: self.line_color
+        Line:
+            rounded_rectangle: (self.x + dp(.5), self.y + dp(.5), self.width - dp(1), self.height - dp(1), dp(14))
+            width: dp(1.1)
+    Spacer:
+    Label:
+        text: ICONS.get(root.icon, "") if not root.busy else ICONS["refresh"]
+        font_name: FONT_ICON
+        font_size: sp(19) if root.compact else sp(21)
+        color: root.fg_color
+        size_hint_x: None
+        width: (self.texture_size[0] if root.icon or root.busy else 0)
+    Label:
+        text: root.busy_text if root.busy else root.text
+        font_name: FONT_MONO_BOLD
+        font_size: sp(13.5) if root.compact else sp(14.5)
+        color: root.fg_color
+        size_hint_x: None
+        width: min(self.texture_size[0], max(root.width - dp(64), dp(40)))
+        text_size: (max(root.width - dp(64), dp(40)), None) if self.texture_size[0] > root.width - dp(64) else (None, None)
+        shorten: True
+        shorten_from: "right"
+        max_lines: 1
+    Spacer:
+
+<IconButton>:
+    text: self.glyph
+    font_name: FONT_ICON
+    font_size: sp(22)
+    color: self.tint
+    opacity: 0 if self.hidden else (self.pressed_scale if not self.disabled else 0.35)
+    size_hint: None, None
+    size: dp(44), dp(44)
+
+<Field>:
+    orientation: "vertical"
+    size_hint_y: None
+    height: self.minimum_height
+    spacing: dp(6)
+    Text:
+        role: "label"
+        text: str(root.label).upper()
+        height: self.texture_size[1] if root.label else 0
+        opacity: 1 if root.label else 0
+    BoxLayout:
+        size_hint_y: None
+        height: dp(52)
+        padding: [dp(6), 0]
+        spacing: dp(2)
+        canvas.before:
+            Color:
+                rgba: T.surface2
+            RoundedRectangle:
+                pos: self.pos
+                size: self.size
+                radius: [dp(14)]
+            Color:
+                rgba: T.accent if root.focused else (T.danger if root.error else T.border)
+            Line:
+                rounded_rectangle: (self.x, self.y, self.width, self.height, dp(14))
+                width: dp(1.4) if root.focused else dp(1)
+        Label:
+            text: ICONS.get(root.leading_icon, "")
+            font_name: FONT_ICON
+            font_size: sp(20)
+            color: T.accent if root.focused else T.faint
+            size_hint_x: None
+            width: dp(34) if root.leading_icon else 0
+        TextInput:
+            id: inp
+            text: root.text
+            hint_text: root.hint
+            password: root.password and not root.reveal
+            input_type: root.input_type
+            input_filter: root.input_filter
+            multiline: False
+            write_tab: False
+            background_normal: ""
+            background_active: ""
+            background_disabled_normal: ""
+            background_color: 0, 0, 0, 0
+            foreground_color: T.text
+            disabled_foreground_color: T.faint
+            hint_text_color: T.faint
+            cursor_color: T.accent
+            cursor_width: dp(2)
+            selection_color: with_alpha(T.accent, .35)
+            font_size: sp(16)
+            font_name: FONT_MONO
+            padding: [dp(8), (self.height - self.line_height) / 2, dp(8), 0]
+            on_text: root.text = self.text; root.error = ""
+            on_text_validate: root.dispatch("on_submit")
+            on_focus: root.focused = self.focus
+        IconButton:
+            icon: root.trailing_icon or "close"
+            tint: T.accent if root.reveal else T.muted
+            size: (dp(44), dp(44)) if root.trailing_icon else (0, 0)
+            hidden: not root.trailing_icon
+            disabled: not root.trailing_icon
+            pos_hint: {"center_y": .5}
+            on_release: root.dispatch("on_trailing")
+    Text:
+        role: "caption"
+        text: root.error or root.helper
+        color: T.danger if root.error else T.faint
+        font_size: sp(12)
+        height: self.texture_size[1] if (root.error or root.helper) else 0
+        opacity: 1 if (root.error or root.helper) else 0
+
+<ToggleSwitch>:
+    size_hint: None, None
+    size: dp(52), dp(32)
+    canvas:
+        Color:
+            rgba: with_alpha(T.accent, .9) if self.active else T.raised
+        RoundedRectangle:
+            pos: self.x, self.center_y - dp(14)
+            size: self.width, dp(28)
+            radius: [dp(14)]
+        Color:
+            rgba: T.transparent if self.active else T.border_hi
+        Line:
+            rounded_rectangle: (self.x, self.center_y - dp(14), self.width, dp(28), dp(14))
+            width: dp(1)
+        Color:
+            rgba: T.on_accent if self.active else T.muted
+        Ellipse:
+            pos: self.x + dp(4) + self.knob * (self.width - dp(28)), self.center_y - dp(10)
+            size: dp(20), dp(20)
+
+<SwitchRow>:
+    size_hint_y: None
+    height: max(dp(56), labels.height + dp(12))
+    spacing: dp(12)
+    BoxLayout:
+        id: labels
+        orientation: "vertical"
+        size_hint_y: None
+        height: self.minimum_height
+        pos_hint: {"center_y": .5}
+        spacing: dp(2)
+        Text:
+            text: root.title
+            font_size: sp(15)
+        Text:
+            role: "caption"
+            text: root.subtitle
+            height: self.texture_size[1] if root.subtitle else 0
+    ToggleSwitch:
+        active: root.active
+        pos_hint: {"center_y": .5}
+        on_release: root.active = self.active
+
+<Badge>:
+    text: str(self.color_key).replace("_", " ")
+    font_name: FONT_MONO_BOLD
+    font_size: sp(11.5)
+    color: self.tone
+    size_hint: None, None
+    size: self.texture_size[0] + dp(20), dp(26)
+    canvas.before:
+        Color:
+            rgba: with_alpha(self.tone, .14)
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(13)]
+        Color:
+            rgba: with_alpha(self.tone, .45)
+        Line:
+            rounded_rectangle: (self.x, self.y, self.width, self.height, dp(13))
+            width: dp(1)
+
+<ProgressTrack>:
+    size_hint_y: None
+    height: dp(10)
+    canvas:
+        Color:
+            rgba: T.raised
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(5)]
+        Color:
+            rgba: T.accent
+        RoundedRectangle:
+            pos: (self.x + self.shimmer * self.width * .7, self.y) if self.indeterminate else self.pos
+            size: (self.width * .3, self.height) if self.indeterminate else (max(self.height, self.width * min(max(self.value, 0), 1)) if self.value > 0 else 0, self.height)
+            radius: [dp(5)]
+
+<StatTile>:
+    padding: dp(14)
+    spacing: dp(4)
+    height: dp(108)
+    bg: T.surface
+    Icon:
+        icon: root.icon
+        color: root.tone
+        size_px: dp(20)
+    Text:
+        text: root.value
+        font_name: FONT_MONO_BOLD
+        font_size: sp(24)
+        color: T.text
+        shorten: True
+        max_lines: 1
+    Text:
+        role: "caption"
+        text: root.caption
+        font_size: sp(12)
+        max_lines: 1
+        shorten: True
+
+<BarRow>:
+    orientation: "vertical"
+    size_hint_y: None
+    height: dp(40)
+    spacing: dp(6)
+    BoxLayout:
+        size_hint_y: None
+        height: dp(22)
+        Label:
+            text: str(root.title).replace("_", " ")
+            font_name: FONT_MONO
+            font_size: sp(13)
+            color: T.text
+            halign: "left"
+            valign: "middle"
+            text_size: self.size
+            shorten: True
+        Label:
+            text: "{:,}".format(int(root.count))
+            font_name: FONT_MONO_BOLD
+            font_size: sp(13)
+            color: root.tone
+            halign: "right"
+            valign: "middle"
+            text_size: self.size
+            size_hint_x: None
+            width: dp(90)
+    Widget:
+        size_hint_y: None
+        height: dp(8)
+        canvas:
+            Color:
+                rgba: T.raised
+            RoundedRectangle:
+                pos: self.pos
+                size: self.size
+                radius: [dp(4)]
+            Color:
+                rgba: root.tone
+            RoundedRectangle:
+                pos: self.pos
+                size: (max(dp(8), self.width * root.shown) if root.count else 0), self.height
+                radius: [dp(4)]
+
+<KVRow>:
+    size_hint_y: None
+    height: max(k.height, v.height) + dp(10)
+    spacing: dp(12)
+    canvas.after:
+        Color:
+            rgba: with_alpha(T.border, .7)
+        Line:
+            points: [self.x, self.y, self.right, self.y]
+            width: dp(.6)
+    Text:
+        id: k
+        role: "caption"
+        text: root.key
+        size_hint_x: .4
+        pos_hint: {"center_y": .5}
+    Text:
+        id: v
+        text: root.value or "-"
+        color: root.tone
+        font_name: FONT_MONO if root.mono else "Roboto"
+        font_size: sp(14.5)
+        size_hint_x: .6
+        halign: "right"
+        pos_hint: {"center_y": .5}
+
+<SectionTitle>:
+    size_hint_y: None
+    height: dp(30)
+    spacing: dp(8)
+    Icon:
+        icon: root.icon or "bolt"
+        size_px: dp(18)
+        opacity: 1 if root.icon else 0
+        width: self.size_px + dp(4) if root.icon else 0
+        pos_hint: {"center_y": .5}
+    Label:
+        text: str(root.text).upper()
+        font_name: FONT_MONO_BOLD
+        font_size: sp(12.5)
+        color: T.muted
+        halign: "left"
+        valign: "middle"
+        text_size: self.size
+
+<NavItem>:
+    orientation: "vertical"
+    padding: [0, dp(8), 0, dp(8)]
+    spacing: dp(4)
+    opacity: .7 + .3 * self.pressed_scale
+    Widget:
+        size_hint_y: None
+        height: dp(32)
+        canvas:
+            Color:
+                rgba: with_alpha(T.accent, .16) if root.active else T.transparent
+            RoundedRectangle:
+                pos: self.center_x - dp(30), self.y
+                size: dp(60), dp(32)
+                radius: [dp(16)]
+        Label:
+            text: ICONS.get(root.icon, "")
+            font_name: FONT_ICON
+            font_size: sp(23)
+            color: T.accent if root.active else T.muted
+            center: self.parent.center
+            size: self.texture_size
+    Label:
+        text: root.text
+        font_name: FONT_MONO_BOLD if root.active else FONT_MONO
+        font_size: sp(11.5)
+        color: T.text if root.active else T.muted
+        size_hint_y: None
+        height: dp(16)
+
+<NavBar>:
+    orientation: "vertical" if self.rail else "horizontal"
+    canvas.before:
+        Color:
+            rgba: T.surface
+        Rectangle:
+            pos: self.pos
+            size: self.size
+        Color:
+            rgba: T.border
+        Line:
+            points: [self.right, self.y, self.right, self.top] if self.rail else [self.x, self.top, self.right, self.top]
+            width: dp(1)
+    padding: [0, dp(18), 0, dp(18)] if self.rail else [dp(4), 0, dp(4), 0]
+    Image:
+        source: "assets/logo_mark.png"
+        size_hint: (1, None) if root.rail else (None, None)
+        height: dp(48) if root.rail else 0
+        width: self.width if root.rail else 0
+        opacity: 1 if root.rail else 0
+        fit_mode: "contain"
+    Widget:
+        size_hint: (1, None) if root.rail else (None, None)
+        height: dp(18) if root.rail else 0
+        width: 0
+    BoxLayout:
+        id: item_box
+        orientation: "vertical" if root.rail else "horizontal"
+        size_hint_y: None if root.rail else 1
+        height: dp(80) * len(root.items) if root.rail else 0
+        spacing: dp(4) if root.rail else 0
+    Widget:
+        size_hint: (1, 1) if root.rail else (None, None)
+        size: 0, 0
+
+<Dialog>:
+    size_hint: None, None
+    width: min(Window.width - dp(32), dp(520))
+    height: min(card.height, Window.height - dp(48))
+    background: ""
+    background_color: 0, 0, 0, 0
+    overlay_color: T.overlay
+    ScrollView:
+        do_scroll_x: False
+        bar_width: dp(3)
+        bar_color: with_alpha(T.accent, .6)
+        effect_cls: ScrollEffect
+        Card:
+            id: card
+            bg: T.surface2
+            line: T.border_hi
+            radius: dp(22)
+            padding: dp(20)
+            spacing: dp(14)
+            BoxLayout:
+                size_hint_y: None
+                height: dp(30)
+                spacing: dp(10)
+                Icon:
+                    icon: root.icon
+                    color: root.tone
+                    pos_hint: {"center_y": .5}
+                Label:
+                    text: root.title
+                    font_name: FONT_MONO_BOLD
+                    font_size: sp(17)
+                    color: T.text
+                    halign: "left"
+                    valign: "middle"
+                    text_size: self.size
+                    shorten: True
+            BoxLayout:
+                id: body
+                orientation: "vertical"
+                size_hint_y: None
+                height: self.minimum_height
+                spacing: dp(10)
+            BoxLayout:
+                id: buttons
+                size_hint_y: None
+                height: dp(52)
+                spacing: dp(10)
+
+<Toast>:
+    size_hint: None, None
+    width: min(Window.width - dp(32), dp(520))
+    height: max(dp(54), msg.texture_size[1] + dp(28))
+    padding: [dp(14), dp(10), dp(16), dp(10)]
+    spacing: dp(12)
+    opacity: 0
+    canvas.before:
+        Color:
+            rgba: T.raised
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(16)]
+        Color:
+            rgba: with_alpha(self.tone, .7)
+        Line:
+            rounded_rectangle: (self.x, self.y, self.width, self.height, dp(16))
+            width: dp(1.1)
+    Label:
+        text: root.icon_glyph
+        font_name: FONT_ICON
+        font_size: sp(21)
+        color: root.tone
+        size_hint_x: None
+        width: dp(24)
+    Label:
+        id: msg
+        text: root.text
+        font_size: sp(14)
+        color: T.text
+        halign: "left"
+        valign: "middle"
+        text_size: self.width, None
+        size_hint_y: None
+        height: self.texture_size[1]
+        pos_hint: {"center_y": .5}
+
+# ---------------------------------------------------------------- layout helpers
+
+<Page@BoxLayout>:
+    orientation: "vertical"
+    size_hint_y: None
+    height: self.minimum_height
+    spacing: dp(16)
+    padding: [max(dp(16), (self.width - dp(760)) / 2), dp(12), max(dp(16), (self.width - dp(760)) / 2), dp(28)]
+
+<PageScroll@ScrollView>:
+    do_scroll_x: False
+    bar_width: dp(3)
+    bar_color: with_alpha(T.accent, .55)
+    bar_inactive_color: with_alpha(T.accent, .15)
+    scroll_type: ["bars", "content"]
+    effect_cls: ScrollEffect
+
+<TopBar@BoxLayout>:
+    title: ""
+    subtitle: ""
+    key_ok: False
+    size_hint_y: None
+    height: dp(64)
+    padding: [dp(18), dp(8), dp(10), dp(8)]
+    spacing: dp(10)
+    canvas.before:
+        Color:
+            rgba: T.bg
+        Rectangle:
+            pos: self.pos
+            size: self.size
+    BoxLayout:
+        orientation: "vertical"
+        Label:
+            text: root.title
+            font_name: FONT_MONO_BOLD
+            font_size: sp(19)
+            color: T.text
+            halign: "left"
+            valign: "bottom"
+            text_size: self.size
+            shorten: True
+        Label:
+            text: root.subtitle
+            font_name: FONT_MONO
+            font_size: sp(11.5)
+            color: T.accent_dim
+            halign: "left"
+            valign: "top"
+            text_size: self.size
+            shorten: True
+    StatusPill:
+        ok: root.key_ok
+        on_release: app.go("settings")
+
+<StatusPill@ButtonBehavior+BoxLayout>:
+    ok: False
+    size_hint: None, None
+    size: dp(112), dp(34)
+    pos_hint: {"center_y": .5}
+    padding: [dp(12), 0]
+    spacing: dp(8)
+    canvas.before:
+        Color:
+            rgba: with_alpha(T.accent if self.ok else T.warn, .12)
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(17)]
+        Color:
+            rgba: with_alpha(T.accent if self.ok else T.warn, .5)
+        Line:
+            rounded_rectangle: (self.x, self.y, self.width, self.height, dp(17))
+            width: dp(1)
+    Widget:
+        size_hint: None, None
+        size: dp(8), dp(8)
+        pos_hint: {"center_y": .5}
+        canvas:
+            Color:
+                rgba: T.accent if root.ok else T.warn
+            Ellipse:
+                pos: self.pos
+                size: self.size
+    Label:
+        text: "API READY" if root.ok else "NO API KEY"
+        font_name: FONT_MONO_BOLD
+        font_size: sp(11)
+        color: T.accent if root.ok else T.warn
+
+# ---------------------------------------------------------------- root
+
+<Root>:
+    canvas.before:
+        Color:
+            rgba: T.bg
+        Rectangle:
+            pos: self.pos
+            size: self.size
+    BoxLayout:
+        orientation: "horizontal"
+        NavBar:
+            id: rail
+            rail: True
+            current: sm.current or "home"
+            size_hint_x: None
+            width: dp(92) if root.wide else 0
+            opacity: 1 if root.wide else 0
+            disabled: not root.wide
+            on_navigate: app.go(args[1])
+        BoxLayout:
+            orientation: "vertical"
+            TopBar:
+                id: topbar
+                title: root.page_title
+                subtitle: root.page_subtitle
+                key_ok: app.key_ok
+            ScreenManager:
+                id: sm
+            NavBar:
+                id: bottom
+                current: sm.current or "home"
+                size_hint_y: None
+                height: 0 if root.wide else dp(76)
+                opacity: 0 if root.wide else 1
+                disabled: root.wide
+                on_navigate: app.go(args[1])
+    FloatLayout:
+        id: toast_layer
+        size_hint: 1, 1
+        Toast:
+            id: toast
+            center_x: root.center_x + (dp(46) if root.wide else 0)
+            y: dp(24) if root.wide else dp(92)
+
+# ---------------------------------------------------------------- home
+
+<HomeScreen>:
+    name: "home"
+    PageScroll:
+        Page:
+            id: page
+            Card:
+                bg: T.surface
+                line: T.border_hi
+                padding: dp(18)
+                spacing: dp(14)
+                BoxLayout:
+                    size_hint_y: None
+                    height: dp(72)
+                    spacing: dp(14)
+                    Image:
+                        source: "assets/logo_mark.png"
+                        size_hint: None, None
+                        size: dp(72), dp(72)
+                        fit_mode: "contain"
+                    BoxLayout:
+                        orientation: "vertical"
+                        Label:
+                            text: "PHONEINTEL"
+                            font_name: FONT_MONO_BOLD
+                            font_size: sp(23)
+                            color: T.accent
+                            halign: "left"
+                            valign: "bottom"
+                            text_size: self.size
+                            shorten: True
+                        Label:
+                            text: "Line-type intelligence via Telnyx"
+                            font_name: FONT_MONO
+                            font_size: sp(12)
+                            color: T.muted
+                            halign: "left"
+                            valign: "top"
+                            text_size: self.size
+                            shorten: True
+                Text:
+                    role: "caption"
+                    text: "Classify numbers as mobile, landline, VoIP and more using carrier data. Results stay on this device." if app.key_ok else "Add your Telnyx API key to start classifying numbers. It is stored only in this app's private storage."
+                AppButton:
+                    text: "Look up a number" if app.key_ok else "Add API key"
+                    icon: "search" if app.key_ok else "key"
+                    on_release: app.go("lookup" if app.key_ok else "settings")
+            SectionTitle:
+                text: "Overview"
+                icon: "insights"
+            GridLayout:
+                id: stats
+                cols: 2 if self.width < dp(560) else 4
+                spacing: dp(12)
+                size_hint_y: None
+                height: self.minimum_height
+                row_default_height: dp(108)
+                row_force_default: True
+            SectionTitle:
+                text: "Line types"
+                icon: "chart"
+            Card:
+                id: breakdown
+                spacing: dp(10)
+            SectionTitle:
+                text: "Quick actions"
+                icon: "bolt"
+            GridLayout:
+                cols: 1 if self.width < dp(420) else 3
+                spacing: dp(12)
+                size_hint_y: None
+                height: self.minimum_height
+                AppButton:
+                    text: "Bulk classify"
+                    icon: "upload"
+                    variant: "outline"
+                    on_release: app.go("bulk")
+                AppButton:
+                    text: "Export results"
+                    icon: "download"
+                    variant: "outline"
+                    on_release: app.go("history")
+                AppButton:
+                    text: "Settings"
+                    icon: "tune"
+                    variant: "outline"
+                    on_release: app.go("settings")
+
+# ---------------------------------------------------------------- lookup
+
+<LookupScreen>:
+    name: "lookup"
+    PageScroll:
+        Page:
+            id: page
+            Card:
+                Text:
+                    role: "title"
+                    text: "Single lookup"
+                Text:
+                    role: "caption"
+                    text: "Enter a number in any format. Numbers without a + use region " + app.region + "."
+                Field:
+                    id: number
+                    label: "Phone number"
+                    hint: "+1 650 253 0000"
+                    input_type: "tel"
+                    leading_icon: "phone"
+                    trailing_icon: "paste"
+                    on_trailing: root.paste()
+                    on_submit: root.run_lookup()
+                SwitchRow:
+                    id: force
+                    title: "Force fresh lookup"
+                    subtitle: "Skip the cache and query Telnyx again"
+                AppButton:
+                    id: go
+                    text: "Look up"
+                    icon: "search"
+                    busy_text: "Querying Telnyx..."
+                    on_release: root.run_lookup()
+            BoxLayout:
+                id: result_holder
+                orientation: "vertical"
+                size_hint_y: None
+                height: self.minimum_height
+
+<ResultCard>:
+    spacing: dp(6)
+    BoxLayout:
+        size_hint_y: None
+        height: dp(34)
+        spacing: dp(10)
+        Label:
+            text: root.number
+            font_name: FONT_MONO_BOLD
+            font_size: sp(19)
+            color: T.text
+            halign: "left"
+            valign: "middle"
+            text_size: self.size
+            shorten: True
+        Badge:
+            color_key: root.classification
+            pos_hint: {"center_y": .5}
+    BoxLayout:
+        id: rows
+        orientation: "vertical"
+        size_hint_y: None
+        height: self.minimum_height
+
+# ---------------------------------------------------------------- bulk
+
+<BulkScreen>:
+    name: "bulk"
+    PageScroll:
+        id: scroll
+        Page:
+            id: page
+
+<ColumnOption>:
+    size_hint_y: None
+    height: dp(60)
+    padding: [dp(14), dp(8)]
+    spacing: dp(12)
+    canvas.before:
+        Color:
+            rgba: with_alpha(T.accent, .10) if self.selected else T.surface2
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(14)]
+        Color:
+            rgba: T.accent if self.selected else T.border
+        Line:
+            rounded_rectangle: (self.x, self.y, self.width, self.height, dp(14))
+            width: dp(1.3) if self.selected else dp(1)
+    Label:
+        text: ICONS["check"] if root.selected else ICONS["table"]
+        font_name: FONT_ICON
+        font_size: sp(20)
+        color: T.accent if root.selected else T.faint
+        size_hint_x: None
+        width: dp(24)
+    BoxLayout:
+        orientation: "vertical"
+        Label:
+            text: root.name + ("   [color=00FF7A]DETECTED[/color]" if root.detected else "")
+            markup: True
+            font_name: FONT_MONO_BOLD
+            font_size: sp(14)
+            color: T.text
+            halign: "left"
+            valign: "middle"
+            text_size: self.size
+            shorten: True
+        Label:
+            text: root.sample or "(empty)"
+            font_name: FONT_MONO
+            font_size: sp(12)
+            color: T.muted
+            halign: "left"
+            valign: "middle"
+            text_size: self.size
+            shorten: True
+
+<JobRow>:
+    size_hint_y: None
+    height: dp(64)
+    spacing: dp(10)
+    canvas.after:
+        Color:
+            rgba: with_alpha(T.border, .7)
+        Line:
+            points: [self.x, self.y, self.right, self.y]
+            width: dp(.6)
+    BoxLayout:
+        orientation: "vertical"
+        padding: [0, dp(8)]
+        Label:
+            text: root.title
+            font_name: FONT_MONO_BOLD
+            font_size: sp(14)
+            color: T.text
+            halign: "left"
+            valign: "middle"
+            text_size: self.size
+            shorten: True
+        Label:
+            text: root.meta
+            font_name: FONT_MONO
+            font_size: sp(12)
+            color: T.muted
+            halign: "left"
+            valign: "middle"
+            text_size: self.size
+            shorten: True
+    AppButton:
+        text: root.action_text
+        icon: root.action_icon
+        variant: "outline"
+        compact: True
+        size_hint_x: None
+        width: dp(124)
+        pos_hint: {"center_y": .5}
+        on_release: root.on_action() if root.on_action else None
+
+# ---------------------------------------------------------------- history
+
+<HistoryScreen>:
+    name: "history"
+    BoxLayout:
+        orientation: "vertical"
+        padding: [max(dp(16), (self.width - dp(760)) / 2), dp(12), max(dp(16), (self.width - dp(760)) / 2), 0]
+        spacing: dp(14)
+        Card:
+            padding: dp(14)
+            spacing: dp(10)
+            Text:
+                role: "title"
+                text: "Export latest results"
+            Text:
+                role: "caption"
+                text: "Saves the newest successful classification of every number to Download/PHONEINTEL."
+            GridLayout:
+                cols: 2 if self.width < dp(520) else 4
+                spacing: dp(10)
+                size_hint_y: None
+                height: self.minimum_height
+                AppButton:
+                    text: "Mobile"
+                    icon: "smartphone"
+                    variant: "outline"
+                    compact: True
+                    on_release: root.export("MOBILE")
+                AppButton:
+                    text: "Landline"
+                    icon: "phone"
+                    variant: "outline"
+                    compact: True
+                    on_release: root.export("LANDLINE")
+                AppButton:
+                    text: "VoIP"
+                    icon: "lan"
+                    variant: "outline"
+                    compact: True
+                    on_release: root.export("VOIP")
+                AppButton:
+                    text: "Other"
+                    icon: "tower"
+                    variant: "outline"
+                    compact: True
+                    on_release: root.export("OTHER")
+        Field:
+            id: search
+            hint: "Search number"
+            leading_icon: "search"
+            input_type: "tel"
+            trailing_icon: "close" if self.text else ""
+            on_trailing: self.text = ""
+            on_text: root.schedule_refresh()
+        Label:
+            id: empty
+            text: ""
+            font_name: FONT_MONO
+            font_size: sp(13)
+            color: T.muted
+            size_hint_y: None
+            height: dp(40) if self.text else 0
+            opacity: 1 if self.text else 0
+        RecycleView:
+            id: rv
+            viewclass: "HistoryRow"
+            bar_width: dp(3)
+            bar_color: with_alpha(T.accent, .55)
+            effect_cls: ScrollEffect
+            scroll_type: ["bars", "content"]
+            RecycleBoxLayout:
+                orientation: "vertical"
+                default_size: None, dp(76)
+                default_size_hint: 1, None
+                size_hint_y: None
+                height: self.minimum_height
+                spacing: dp(8)
+                padding: [0, 0, 0, dp(16)]
+
+<HistoryRow>:
+    size_hint_y: None
+    height: dp(76)
+    padding: [dp(14), dp(10)]
+    spacing: dp(10)
+    canvas.before:
+        Color:
+            rgba: T.surface2 if self.state == "down" else T.surface
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(14)]
+        Color:
+            rgba: T.border
+        Line:
+            rounded_rectangle: (self.x, self.y, self.width, self.height, dp(14))
+            width: dp(1)
+    BoxLayout:
+        orientation: "vertical"
+        spacing: dp(2)
+        Label:
+            text: root.number
+            font_name: FONT_MONO_BOLD
+            font_size: sp(15)
+            color: T.text
+            halign: "left"
+            valign: "middle"
+            text_size: self.size
+            shorten: True
+        Label:
+            text: root.meta
+            font_name: FONT_MONO
+            font_size: sp(12)
+            color: T.muted
+            halign: "left"
+            valign: "middle"
+            text_size: self.size
+            shorten: True
+    Badge:
+        color_key: root.classification
+        pos_hint: {"center_y": .5}
+
+# ---------------------------------------------------------------- settings
+
+<SettingsScreen>:
+    name: "settings"
+    PageScroll:
+        Page:
+            id: page
+            Card:
+                BoxLayout:
+                    size_hint_y: None
+                    height: dp(28)
+                    spacing: dp(10)
+                    Icon:
+                        icon: "key"
+                        pos_hint: {"center_y": .5}
+                    Text:
+                        role: "title"
+                        text: "Telnyx API key"
+                        pos_hint: {"center_y": .5}
+                Text:
+                    role: "caption"
+                    text: ("Saved key: [color=E6FFF0][font=Mono]" + app.masked_key + "[/font][/color]") if app.key_ok else "No key saved yet. Create one in the Telnyx portal under API Keys."
+                Field:
+                    id: key
+                    hint: "Paste API key (KEY...)"
+                    password: True
+                    leading_icon: "lock"
+                    trailing_icon: "visibility_off" if self.reveal else "visibility"
+                    on_trailing: self.reveal = not self.reveal
+                    on_submit: root.save_key()
+                    helper: "Stored only in this app's private storage. Never bundled into the APK."
+                GridLayout:
+                    cols: 1 if self.width < dp(460) else 3
+                    spacing: dp(10)
+                    size_hint_y: None
+                    height: self.minimum_height
+                    AppButton:
+                        text: "Save key"
+                        icon: "save"
+                        on_release: root.save_key()
+                    AppButton:
+                        id: test
+                        text: "Test connection"
+                        icon: "cloud"
+                        variant: "outline"
+                        busy_text: "Testing..."
+                        disabled: not app.key_ok
+                        on_release: root.test_connection()
+                    AppButton:
+                        text: "Remove key"
+                        icon: "delete"
+                        variant: "danger_outline"
+                        disabled: not app.key_ok
+                        on_release: root.confirm_remove()
+            Card:
+                id: engine
+                BoxLayout:
+                    size_hint_y: None
+                    height: dp(28)
+                    spacing: dp(10)
+                    Icon:
+                        icon: "tune"
+                        pos_hint: {"center_y": .5}
+                    Text:
+                        role: "title"
+                        text: "Lookup engine"
+                        pos_hint: {"center_y": .5}
+                GridLayout:
+                    id: fields
+                    cols: 1 if self.width < dp(560) else 2
+                    spacing: [dp(14), dp(12)]
+                    size_hint_y: None
+                    height: self.minimum_height
+                AppButton:
+                    text: "Save settings"
+                    icon: "check"
+                    variant: "outline"
+                    on_release: root.save_settings()
+            Card:
+                BoxLayout:
+                    size_hint_y: None
+                    height: dp(28)
+                    spacing: dp(10)
+                    Icon:
+                        icon: "shield"
+                        pos_hint: {"center_y": .5}
+                    Text:
+                        role: "title"
+                        text: "About"
+                        pos_hint: {"center_y": .5}
+                KVRow:
+                    key: "Version"
+                    value: app.version
+                    mono: True
+                KVRow:
+                    key: "Data source"
+                    value: "Telnyx Number Lookup (type=carrier)"
+                KVRow:
+                    key: "Requested"
+                    value: "Carrier, line type, portability"
+                KVRow:
+                    key: "Never requested"
+                    value: "Caller name, identity, address"
+                KVRow:
+                    key: "Classification"
+                    value: "Provider-reported line type only"

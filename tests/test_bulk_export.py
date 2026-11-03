@@ -2,7 +2,7 @@ import csv
 import json
 import threading
 
-import pandas as pd
+from openpyxl import Workbook, load_workbook
 import pytest
 
 import exporter
@@ -58,9 +58,10 @@ def run_sample(tmp_path, make_engine, client=None):
 def test_csv_loading_and_column_detection(tmp_path):
     source = tmp_path / "in.csv"
     write_csv(source, SAMPLE_ROWS)
-    frame = load_file(source)
-    assert list(frame.columns) == ["name", "phone", "city"]
-    assert detect_column(frame) == "phone"
+    table = load_file(source)
+    assert table.columns == ["name", "phone", "city"]
+    assert len(table) == len(SAMPLE_ROWS)
+    assert detect_column(table) == "phone"
 
 
 def test_headerless_csv_detected(tmp_path):
@@ -79,8 +80,12 @@ def test_semicolon_csv(tmp_path):
 
 def test_xlsx_loading_preserves_text(tmp_path):
     source = tmp_path / "in.xlsx"
-    pd.DataFrame({"Customer": ["A", "B"], "Contact Number": [16502530000, "212-555-1234"]}).to_excel(
-        source, index=False)
+    book = Workbook()
+    sheet = book.active
+    sheet.append(["Customer", "Contact Number"])
+    sheet.append(["A", 16502530000])
+    sheet.append(["B", "212-555-1234"])
+    book.save(source)
     frame = load_file(source)
     assert detect_column(frame) == "Contact Number"
     prepared = prepare_job(frame, "Contact Number", str(source))
@@ -91,7 +96,7 @@ def test_txt_loading(tmp_path):
     source = tmp_path / "in.txt"
     source.write_text("6502530000\n\n212-555-1234\n", encoding="utf-8")
     frame = load_file(source)
-    assert frame["phone_number"].tolist() == ["6502530000", "212-555-1234"]
+    assert frame.column_values("phone_number") == ["6502530000", "212-555-1234"]
 
 
 def test_unsupported_and_missing_files(tmp_path):
@@ -146,12 +151,15 @@ def test_exports_preserve_order_and_original_columns(tmp_path, make_engine):
     assert failed[0]["name"] == "Hal" and "timeout" in failed[0]["pi_error"]
     invalid = list(csv.DictReader((folder / "INVALID.csv").open(encoding="utf-8-sig")))
     assert invalid[0]["pi_input"] == "not a number"
-    workbook = pd.read_excel(folder / "COMPLETE_RESULTS.xlsx", sheet_name=None, dtype=str)
-    results = workbook["Results"]
-    assert results["name"].tolist() == [r[0] for r in SAMPLE_ROWS]
-    assert list(results.columns[:3]) == ["name", "phone", "city"]
-    assert results.loc[1, "pi_classification"] == "LANDLINE"
-    assert set(workbook["Summary"]["bucket"]) >= set(EXPORT_BUCKETS)
+    workbook = load_workbook(folder / "COMPLETE_RESULTS.xlsx", read_only=True)
+    rows = list(workbook["Results"].iter_rows(values_only=True))
+    header, body = list(rows[0]), rows[1:]
+    assert header[:3] == ["name", "phone", "city"]
+    assert [r[0] for r in body] == [r[0] for r in SAMPLE_ROWS]
+    assert body[1][header.index("pi_classification")] == "LANDLINE"
+    summary = {r[0] for r in workbook["Summary"].iter_rows(min_row=2, values_only=True)}
+    assert summary >= set(EXPORT_BUCKETS)
+    workbook.close()
 
 
 def test_failed_rows_retried_on_resume(tmp_path, make_engine):
@@ -246,3 +254,23 @@ def test_keyboard_interrupt_saves_progress(tmp_path, make_engine, db):
     assert db.get_job(job_id)["status"] == "interrupted"
     assert db.record_status_counts(job_id).get("done", 0) >= 2
     assert BulkProcessor(engine).run(job_id).status == "completed"
+
+
+def test_csv_with_quoted_commas_and_ragged_rows(tmp_path):
+    source = tmp_path / "in.csv"
+    source.write_text('name,phone,note\n"Doe, Jane",6502530000\nB,2125551234,"x, y",extra\n', encoding="utf-8")
+    table = load_file(source)
+    assert table.columns == ["name", "phone", "note", "column_4"]
+    assert table.rows[0]["name"] == "Doe, Jane" and table.rows[0]["note"] == ""
+
+
+def test_formula_like_values_written_as_text(tmp_path, make_engine):
+    source = tmp_path / "in.csv"
+    source.write_text("name,phone\n=HYPERLINK(1),6502530000\n", encoding="utf-8")
+    engine = make_engine(FakeClient(NUMBERS))
+    job_id = create_job(engine, prepare_job(load_file(source), "phone", str(source)))
+    BulkProcessor(engine).run(job_id)
+    folder = exporter.export_job(engine.db, job_id, tmp_path / "exports")
+    workbook = load_workbook(folder / "COMPLETE_RESULTS.xlsx")
+    cell = workbook["Results"]["A2"]
+    assert cell.value == "=HYPERLINK(1)" and cell.data_type == "s"

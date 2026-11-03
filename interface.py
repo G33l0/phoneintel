@@ -240,10 +240,10 @@ class App:
         path = clean_path(self.ask("Path to CSV, XLSX or TXT file"))
         try:
             with self.console.status("[accent]Reading file...[/]"):
-                frame = load_file(path)
-            column = self.choose_column(frame, engine.settings.default_region)
+                table = load_file(path)
+            column = self.choose_column(table, engine.settings.default_region)
             with self.console.status("[accent]Validating and normalizing numbers...[/]"):
-                prepared = prepare_job(frame, column, str(path.resolve()), engine.settings.default_region)
+                prepared = prepare_job(table, column, str(path.resolve()), engine.settings.default_region)
         except BulkInputError as exc:
             return self.error(str(exc))
         force = self.confirm("Force fresh lookups (ignore cache)?", default=False)
@@ -252,18 +252,18 @@ class App:
         job_id = create_job(engine, prepared, force)
         self.run_job(engine, job_id)
 
-    def choose_column(self, frame, region: str) -> str:
-        columns = list(frame.columns)
+    def choose_column(self, source, region: str) -> str:
+        columns = list(source.columns)
         if len(columns) == 1:
             return columns[0]
-        detected = detect_column(frame, region)
+        detected = detect_column(source, region)
         table = self.table("COLUMNS")
         table.add_column("#", style="accent", width=4)
         table.add_column("Column", overflow="fold")
         table.add_column("Sample", overflow="fold")
         for i, name in enumerate(columns, 1):
             marker = "  <- detected" if name == detected else ""
-            table.add_row(str(i), f"{name}{marker}", str(frame[name].iloc[0])[:30])
+            table.add_row(str(i), f"{name}{marker}", str(source.rows[0].get(name, ""))[:30])
         self.console.print(table)
         default = str(columns.index(detected) + 1) if detected else None
         while True:
