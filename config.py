@@ -23,7 +23,7 @@ DEFAULT_SETTINGS = {
 
 SETTING_LIMITS = {
     "concurrency": (1, 20),
-    "requests_per_second": (0.2, 50),
+    "requests_per_second": (0.2, 40),
     "max_retries": (0, 10),
     "request_timeout": (3, 120),
     "cache_days": (0, 3650),

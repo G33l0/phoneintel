@@ -72,6 +72,15 @@ PHONEINTEL appends `pi_*` columns (row, E.164, country, carrier, line type, clas
 portability, status, duplicate-of row, error, timestamp). If a job is still incomplete, a
 `PENDING.csv` is also written.
 
+### Telnyx API reference
+
+* Lookup: [`GET /v2/number_lookup/{phone_number}`](https://developers.telnyx.com/api-reference/number-lookup/lookup-phone-number-data)
+  — documented `carrier.type` / `portability.line_type` values are `fixed line`, `mobile`, `voip`,
+  `fixed line or mobile`, `toll free`, `premium rate`, `shared cost`, `personal number`, `pager`,
+  `uan`, `voicemail`, `unknown`. Plain `voip` maps to `OTHER_VOIP`; `FIXED_VOIP` / `NON_FIXED_VOIP`
+  are only used if a provider returns those labels explicitly.
+* Connection test: [`GET /v2/balance`](https://developers.telnyx.com/api-reference/billing/get-user-balance-details).
+
 ### Data and privacy
 
 * Requests use `GET https://api.telnyx.com/v2/number_lookup/{number}?type=carrier` with
@@ -176,15 +185,21 @@ python main.py
 |---------|---------|---------|
 | default_region | US | Region for numbers without `+` |
 | concurrency | 4 | Parallel worker threads (1–20) |
-| requests_per_second | 5 | Global API throttle (0.2–50) |
+| requests_per_second | 5 | Global API throttle (0.2–40) |
 | max_retries | 3 | Retries for 429 / 5xx / network errors |
 | request_timeout | 15 | HTTP timeout in seconds |
 | cache_days | 30 | Successful results reused for this many days (0 disables cache) |
 | batch_size | 100 | Numbers committed to SQLite per batch |
 | cost_per_lookup | 0.0025 | USD used for cost estimates — **verify against your Telnyx pricing** |
 
-Keep `requests_per_second` within the rate limit of your Telnyx account. On HTTP 429 PHONEINTEL
-waits for `Retry-After` (or backs off exponentially) before continuing.
+Telnyx documents a global limit of roughly 40 requests per second per user across all of
+api.telnyx.com ([rate limiting](https://developers.telnyx.com/docs/development/api-fundamentals/reliability/rate-limiting)),
+so the throttle is capped at 40; the conservative default of 5 leaves headroom for other traffic.
+On HTTP 429 PHONEINTEL waits for `Retry-After` (or backs off exponentially) before continuing.
+
+The default `cost_per_lookup` matches the carrier-lookup rate listed by Telnyx at the time of
+writing; prices vary by destination and volume, so check
+[telnyx.com/pricing/number-lookup](https://telnyx.com/pricing/number-lookup).
 
 `PHONEINTEL_HOME=/some/dir` relocates `.env`, `data/` and `exports/` (useful for Termux shared
 storage or per-project workspaces).

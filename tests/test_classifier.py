@@ -84,3 +84,35 @@ def test_malformed_responses_fail(payload):
 def test_mismatched_number_fails():
     result = parse_lookup_response(lookup_payload("+15555550100"), "x", "+16502530000")
     assert result.status == "FAILED"
+
+
+DOCUMENTED_TYPES = {
+    "fixed line": "LANDLINE", "mobile": "MOBILE", "voip": "OTHER_VOIP",
+    "fixed line or mobile": "UNKNOWN", "toll free": "TOLL_FREE", "premium rate": "OTHER",
+    "shared cost": "OTHER", "personal number": "OTHER", "pager": "OTHER", "uan": "OTHER",
+    "voicemail": "OTHER", "unknown": "UNKNOWN",
+}
+
+
+@pytest.mark.parametrize("raw,expected", DOCUMENTED_TYPES.items())
+def test_every_documented_telnyx_type_is_mapped(raw, expected):
+    assert normalize_line_type(raw).value == expected
+
+
+def test_documented_response_shape():
+    payload = {"data": {
+        "record_type": "number_lookup", "country_code": "US", "national_format": "(0312) 945-7420",
+        "phone_number": "+13129457420", "fraud": None, "valid_number": True, "nnid_override": None,
+        "carrier": {"mobile_country_code": "US", "mobile_network_code": "0866", "name": "Telnyx/4",
+                    "type": "voip", "error_code": None, "normalized_carrier": "AT&T"},
+        "portability": {"lrn": "2245701999", "ported_status": "", "ported_date": "", "ocn": "073H",
+                        "line_type": "voip", "spid": "073H", "spid_carrier_name": "Telnyx/4",
+                        "spid_carrier_type": "3", "altspid": "073H", "altspid_carrier_name": "Telnyx/4",
+                        "altspid_carrier_type": "3", "city": "WAUKEGAN", "state": "Illinois"},
+    }}
+    result = parse_lookup_response(payload, "3129457420", "+13129457420")
+    assert result.status == "SUCCESS" and result.classification == "OTHER_VOIP"
+    assert result.carrier == "Telnyx/4" and result.country == "US"
+    assert result.ported_status is None and result.error is None
+    assert result.portability["lrn"] == "2245701999"
+    assert "city" not in result.portability and "state" not in result.portability
