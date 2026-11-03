@@ -1,6 +1,7 @@
 import csv
 import json
 import threading
+from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
 import pytest
@@ -109,8 +110,9 @@ def test_unsupported_and_missing_files(tmp_path):
 
 
 def test_clean_path_handles_shell_quoting():
-    assert str(clean_path('"C:/data/file.csv"')) == "C:/data/file.csv"
-    assert str(clean_path("& 'C:/data/file.csv'")) == "C:/data/file.csv"
+    assert clean_path('"C:/data/file.csv"') == Path("C:/data/file.csv")
+    assert clean_path("& 'C:/data/file.csv'") == Path("C:/data/file.csv")
+    assert clean_path("  'numbers.csv'  ") == Path("numbers.csv")
 
 
 def test_duplicate_detection_and_estimate(tmp_path, make_engine):
