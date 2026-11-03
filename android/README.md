@@ -98,7 +98,9 @@ CI fails if the copies differ (`python android/sync_core.py --check`).
 pip install buildozer==1.6.0
 sudo apt install -y git zip unzip openjdk-17-jdk autoconf automake libtool pkg-config cmake \
     build-essential zlib1g-dev libncurses-dev libffi-dev libssl-dev
-cd android && buildozer android debug
+# constrain pip and charset-normalizer for the python-for-android build (see ci.yml)
+printf 'pip<26.3\ncharset-normalizer<3\n' > /tmp/pi-constraints.txt
+cd android && PIP_CONSTRAINT=/tmp/pi-constraints.txt buildozer android debug
 ```
 
 The APK appears in `android/bin/`. To run the Kivy UI on a desktop for development:

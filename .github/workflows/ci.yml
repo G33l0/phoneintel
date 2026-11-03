@@ -120,11 +120,14 @@ jobs:
       - name: Build debug APK
         working-directory: android
         env:
-          # pip 26.3 is broken inside the p4a build venv (ImportError: capture_logging),
-          # and p4a runs `pip install -U pip`. Constrain it to a working release.
+          # PIP_CONSTRAINT is honored by every pip invocation p4a runs, including its internal
+          # dependency-resolution dry-run (which strips version pins from the requirements list):
+          #   - pip<26.3: pip 26.3 is broken in the p4a build venv (ImportError: capture_logging).
+          #   - charset-normalizer<3: 3.x publishes compiled android wheels that p4a resolves and
+          #     the host pip then rejects; <3 forces the pure-Python 2.1.1 (requests accepts it).
           PIP_CONSTRAINT: ${{ github.workspace }}/pip-constraints.txt
         run: |
-          echo "pip<26.3" > "${{ github.workspace }}/pip-constraints.txt"
+          printf 'pip<26.3\ncharset-normalizer<3\n' > "${{ github.workspace }}/pip-constraints.txt"
           yes | buildozer -v android debug 2>&1 | tee build.log; exit ${PIPESTATUS[1]}
 
       - name: Verify APK
