@@ -27,7 +27,7 @@ const page = (body, w, h, bg = "transparent", extra = "") =>
   const splash = `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;font-family:'DejaVu Sans Mono',monospace">
     ${sized(svg, 420, 420)}
     <div style="margin-top:48px;color:#00ff7a;font-size:76px;font-weight:700;letter-spacing:14px">PHONEINTEL</div>
-    <div style="margin-top:14px;color:#5fae80;font-size:28px;letter-spacing:6px">NUMBER INTELLIGENCE</div></div>`;
+    <div style="margin-top:14px;color:#5fae80;font-size:28px;letter-spacing:6px">BUSINESS MESSAGES ON THE GO</div></div>`;
   await shot("presplash.png", page(splash, 1024, 1024, "#030604"), 1024, 1024, false);
   await browser.close();
   console.log("ok");

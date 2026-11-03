@@ -29,20 +29,20 @@ sideloading, built for `arm64-v8a` and `armeabi-v7a`, Android 7.0+ (API 24).
 ### Business SMS (receive texts for a line you own)
 
 The **Business SMS** screen lets a user receive inbound SMS for a business line *they own*,
-in the app. The design puts a strong ownership proof in front of any message access:
+in the app. Ownership is verified by the operator/super-admin, and the data gate is enforced
+in code:
 
 1. On first launch the app mints an anonymous **18-digit account ID** (no email or phone).
    It is the user's only credential, shown in Settings, stored on-device; only a salted hash
    is ever persisted (`identity.py`).
-2. The user enters a number their business owns and requests hosting. The app shows a
-   **one-time 6-digit code, visible only in that account's session**.
-3. An operator calls the number. Whoever answers must read the code back. The operator
-   confirms it from the admin side (`tools/operator_verify.py`). A match proves the person
-   who answers the line and the app account are the same party - i.e. the account controls
-   the line. Reading a code shown only in-app back over a call is the binding an interception
-   attacker cannot satisfy.
+2. The user enters a number their business owns and submits a hosting request. The number is
+   `pending_verification`.
+3. The **super-admin validates the business's Letter of Authorization (LOA)** for the line —
+   the same proof the carrier (Telnyx) requires to host/text-enable a number — and records the
+   verification from the admin side (`tools/operator_verify.py verify <e164> <loa-ref>`, the
+   stand-in for the admin portal). The LOA reference and operator id are stored for audit.
 4. Only then does the number become **verified**, and only then is any inbound message for it
-   stored or shown - and only to the owning account.
+   stored or shown — and only to the owning account.
 
 Security properties, enforced in code and covered by tests (`tests/test_sms_hosting.py`,
 `tests/test_hosting_service.py`):
@@ -51,16 +51,19 @@ Security properties, enforced in code and covered by tests (`tests/test_sms_host
   through `hosted_numbers` with an ownership + verified-state check. There is no code path
   that returns a message without ownership.
 * A number is owned by at most one account; a number already claimed cannot be taken over.
-* Verification codes and account IDs are stored only as hashes; codes expire (15 min) and
-  lock out after 5 wrong attempts; a code is bound to the number it was issued for.
-* The app user cannot self-verify - `confirm_ownership` is operator-only and absent from the
+* Account IDs are stored only as hashes; verification requires an LOA reference and is recorded
+  with the operator id and time.
+* The app user cannot self-verify — `verify_ownership` is operator-only and absent from the
   app-facing facade. Releasing a number hard-deletes it and its messages.
+
+See [`../SECURITY.md`](../SECURITY.md) for the full threat model, including why coins, pricing
+and verification are server-authoritative and why no client can be made "uncrackable".
 
 **Going live** needs operator-side infrastructure that is out of scope for the app build:
 the Telnyx messaging/number-hosting integration (`telnyx_messaging.py`, mocked in tests) with
 the **Letter of Authorization Telnyx requires to text-enable a number**, a public inbound-SMS
-webhook, and the operator verification running in a secured admin service rather than the
-bundled CLI. Telnyx credentials stay operator-side; users never see or enter an API key.
+webhook (signature-verified), and the admin verification running in the secured portal rather
+than the bundled CLI. Telnyx credentials stay operator-side; users never see or enter an API key.
 
 ### Super-admin configuration (fallback provider & SMS pricing)
 

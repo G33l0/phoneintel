@@ -13,9 +13,9 @@ def host(tmp_path):
     return HostingService(tmp_path / "acct")
 
 
-def operator_confirm(host, e164, code):
+def operator_verify(host, e164, loa="LOA-TEST-1"):
     with HostingDB(host.db_path) as db:
-        return SMSHostingService(db).confirm_ownership(e164, code)
+        return SMSHostingService(db).verify_ownership(e164, loa)
 
 
 def test_account_id_is_18_digits_stable_and_private(host):
@@ -33,7 +33,7 @@ def test_account_id_is_18_digits_stable_and_private(host):
 def test_request_verify_inbox_roundtrip(host):
     req = host.request_hosting("(312) 555-0100")
     assert host.inbox(req.e164) == []            # nothing before verification
-    operator_confirm(host, req.e164, req.code)
+    operator_verify(host, req.e164)
     with HostingDB(host.db_path) as db:
         SMSHostingService(db).ingest_inbound(req.e164, "+1", "hi there")
     assert [m["body"] for m in host.inbox(req.e164)] == ["hi there"]
@@ -44,15 +44,16 @@ def test_request_verify_inbox_roundtrip(host):
 
 def test_release_removes_access(host):
     req = host.request_hosting("(312) 555-0100")
-    operator_confirm(host, req.e164, req.code)
+    operator_verify(host, req.e164)
     with HostingDB(host.db_path) as db:
         SMSHostingService(db).ingest_inbound(req.e164, "+1", "hi")
     assert host.release(req.e164) is True
     assert host.inbox(req.e164) == []
 
 
-def test_user_facade_has_no_confirm_method(host):
+def test_user_facade_has_no_verify_method(host):
     # the app user must not be able to self-verify; that is operator-only
+    assert not hasattr(host, "verify_ownership")
     assert not hasattr(host, "confirm_ownership")
 
 

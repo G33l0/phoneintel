@@ -41,7 +41,6 @@ telnyx_client.TelnyxClient.lookup = fake_lookup
 telnyx_client.TelnyxClient.check_connection = lambda self: {"data": {"balance": "42.10", "currency": "USD"}}
 
 import main as app_main  # noqa: E402
-from sms_hosting import VerificationRequest as VReq  # noqa: E402
 from kivy.clock import Clock  # noqa: E402
 from kivy.core.window import Window  # noqa: E402
 
@@ -87,7 +86,7 @@ def seed_sms(*_):
     req = app.hosting.request_hosting("(312) 555-0100")
     with HostingDB(app.hosting.db_path) as db:
         s = SMSHostingService(db)
-        s.confirm_ownership(req.e164, req.code)
+        s.verify_ownership(req.e164, "LOA-2026-00042", verified_by="admin")
         s.ingest_inbound(req.e164, "+14155550199", "Your appointment is confirmed for 3pm tomorrow.")
         s.ingest_inbound(req.e164, "+18665551234", "Order #4821 has shipped. Reply STOP to opt out.")
 
@@ -119,9 +118,9 @@ def step_list():
         (0.8, shot("06c_sms_numbers")),
         (0.1, lambda *_: sm().get_screen("sms").show_add()),
         (0.5, shot("06d_sms_add")),
-        (0.1, lambda *_: sm().get_screen("sms").show_pending(
-            VReq("+12025550123", "482913", "2026-01-01T00:00:00+00:00"))),
-        (0.5, shot("06e_sms_verify")),
+        (0.1, lambda *_: sm().get_screen("sms").show_submitted(
+            app_main.HostingRequest("+12025550123", "pending_verification"))),
+        (0.5, shot("06e_sms_submitted")),
         (0.1, lambda *_: sm().get_screen("sms").open_inbox("+13125550100")),
         (0.8, shot("06f_sms_inbox")),
         (0.1, lambda *_: a.go("bulk")),

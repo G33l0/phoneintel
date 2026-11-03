@@ -1,5 +1,7 @@
 # PHONEINTEL v1.0
 
+**Business messages on the go.**
+
 Phone-number line-type intelligence powered by the official
 [Telnyx Number Lookup API](https://developers.telnyx.com/api-reference/number-lookup/lookup-phone-number-data).
 It classifies numbers as mobile, landline, VoIP (fixed / non-fixed / other), toll-free, other,
@@ -12,11 +14,13 @@ The repository holds two independent apps:
 | [`terminal/`](terminal/README.md) | Interactive hacker-style terminal app (Rich) | Windows CMD, PowerShell, Android Termux, Linux, macOS | `phoneintel.bat` (Windows) / `./phoneintel.sh` (Termux, Linux) |
 | [`android/`](android/README.md) | Native Android app (Kivy) packaged as an APK | Android 7.0+ | Install the APK from the CI artifact |
 
-The apps also include a **free offline validation** tier (2/day, no API key) and the Android app adds **Business SMS** - receiving texts for a business line the user owns, gated behind a call-back ownership proof (see `android/README.md`).
+Both apps include a **free offline validation** tier (5/day, no API key). The Android app also
+adds **Business SMS** — receiving texts for a business line the user owns, enabled only after
+the operator verifies the business's Letter of Authorization (details in
+[`android/README.md`](android/README.md)).
 
-Both apps include a **free offline validation** tier (2/day, no API key). The Android app also
-adds **Business SMS** — receiving texts for a business line the user owns, gated behind a
-call-back ownership proof (details in [`android/README.md`](android/README.md)).
+Security model (why coins, pricing and verification are server-authoritative, and why no
+client app can be made "uncrackable"): see [`SECURITY.md`](SECURITY.md).
 
 Each folder is self-contained: you can copy `terminal/` to a PC or a Termux home directory
 without anything from `android/`, and `android/` builds its APK without `terminal/`.

@@ -5,9 +5,11 @@ Security invariants enforced here:
     while that number is in a verified/active state. The query always joins through
     hosted_numbers, so there is no code path that returns a message without ownership.
   * A number can be owned by at most one account (PRIMARY KEY on e164). A number already
-    verified by one account cannot be claimed by another.
-  * Account IDs and verification codes are stored only as hashes.
-  * Verification codes expire and have a capped attempt count.
+    claimed by one account cannot be taken over by another.
+  * Account IDs are stored only as hashes.
+  * Verification is an operator action: a number only becomes verified when the admin
+    confirms the business's Letter of Authorization (LOA) for it. The LOA reference and the
+    time are recorded for audit. Nothing on the client can self-verify.
 """
 import sqlite3
 from datetime import datetime, timezone
@@ -32,18 +34,11 @@ CREATE TABLE IF NOT EXISTS hosted_numbers (
     status TEXT NOT NULL,
     requested_at TEXT NOT NULL,
     verified_at TEXT,
+    verified_by TEXT,
+    loa_reference TEXT,
     released_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_hosted_account ON hosted_numbers (account_id_hash, status);
-CREATE TABLE IF NOT EXISTS verifications (
-    e164 TEXT PRIMARY KEY REFERENCES hosted_numbers(e164) ON DELETE CASCADE,
-    account_id_hash TEXT NOT NULL,
-    code_hash TEXT NOT NULL,
-    expires_at TEXT NOT NULL,
-    attempts INTEGER NOT NULL DEFAULT 0,
-    max_attempts INTEGER NOT NULL DEFAULT 5,
-    created_at TEXT NOT NULL
-);
 CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     e164 TEXT NOT NULL,
@@ -110,17 +105,19 @@ class HostingDB:
             "VALUES (?, ?, ?, ?)", (e164, id_hash, PENDING, utc_now()))
         self.conn.commit()
 
-    def set_status(self, e164: str, status: str, verified: bool = False) -> None:
-        if verified:
-            self.conn.execute(
-                "UPDATE hosted_numbers SET status = ?, verified_at = ? WHERE e164 = ?",
-                (status, utc_now(), e164))
-        else:
-            self.conn.execute("UPDATE hosted_numbers SET status = ? WHERE e164 = ?", (status, e164))
+    def mark_verified(self, e164: str, loa_reference: str, verified_by: str | None = None) -> None:
+        self.conn.execute(
+            "UPDATE hosted_numbers SET status = ?, verified_at = ?, verified_by = ?, "
+            "loa_reference = ? WHERE e164 = ?",
+            (VERIFIED, utc_now(), verified_by, loa_reference, e164))
+        self.conn.commit()
+
+    def set_status(self, e164: str, status: str) -> None:
+        self.conn.execute("UPDATE hosted_numbers SET status = ? WHERE e164 = ?", (status, e164))
         self.conn.commit()
 
     def release(self, e164: str, id_hash: str) -> bool:
-        """Fully remove a number this account owns, along with its messages and verification.
+        """Fully remove a number this account owns, along with its messages.
 
         A hard delete (not a status flag) so the number can be claimed again later and no
         private message survives a release. The account guard means one account can never
@@ -130,36 +127,8 @@ class HostingDB:
             "DELETE FROM hosted_numbers WHERE e164 = ? AND account_id_hash = ?", (e164, id_hash))
         if cur.rowcount == 1:
             self.conn.execute("DELETE FROM messages WHERE e164 = ?", (e164,))
-            self.conn.execute("DELETE FROM verifications WHERE e164 = ?", (e164,))
         self.conn.commit()
         return cur.rowcount == 1
-
-    # ---- verifications
-
-    def upsert_verification(self, e164: str, id_hash: str, code_hash: str,
-                            expires_at: str, max_attempts: int) -> None:
-        self.conn.execute(
-            "INSERT INTO verifications (e164, account_id_hash, code_hash, expires_at, attempts, "
-            "max_attempts, created_at) VALUES (?, ?, ?, ?, 0, ?, ?) "
-            "ON CONFLICT(e164) DO UPDATE SET code_hash = excluded.code_hash, "
-            "expires_at = excluded.expires_at, attempts = 0, max_attempts = excluded.max_attempts, "
-            "created_at = excluded.created_at",
-            (e164, id_hash, code_hash, expires_at, max_attempts, utc_now()))
-        self.conn.commit()
-
-    def get_verification(self, e164: str) -> dict | None:
-        row = self.conn.execute("SELECT * FROM verifications WHERE e164 = ?", (e164,)).fetchone()
-        return dict(row) if row else None
-
-    def bump_attempts(self, e164: str) -> int:
-        self.conn.execute("UPDATE verifications SET attempts = attempts + 1 WHERE e164 = ?", (e164,))
-        self.conn.commit()
-        row = self.conn.execute("SELECT attempts FROM verifications WHERE e164 = ?", (e164,)).fetchone()
-        return row["attempts"] if row else 0
-
-    def clear_verification(self, e164: str) -> None:
-        self.conn.execute("DELETE FROM verifications WHERE e164 = ?", (e164,))
-        self.conn.commit()
 
     # ---- messages (always gated through hosted_numbers ownership)
 

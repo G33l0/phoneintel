@@ -25,7 +25,7 @@ from kivy.uix.screenmanager import FadeTransition, Screen  # noqa: E402
 import theme  # noqa: E402
 from android_bridge import IS_ANDROID, AndroidBridge  # noqa: E402
 from hosting_service import HostingService  # noqa: E402
-from sms_hosting import HostingError  # noqa: E402
+from sms_hosting import HostingError, HostingRequest  # noqa: E402
 from config import APP_VERSION, DEFAULT_SETTINGS, SETTING_DESCRIPTIONS, is_plausible_key  # noqa: E402
 from services import PhoneIntelService  # noqa: E402
 from telnyx_client import AuthenticationError, TelnyxError  # noqa: E402
@@ -37,7 +37,7 @@ theme.register_fonts()
 Factory.register("Pressable", cls=Pressable)
 
 PAGE_INFO = {
-    "home": ("PHONEINTEL", "number intelligence terminal"),
+    "home": ("PHONEINTEL", "business messages on the go"),
     "lookup": ("Lookup", "carrier & line type"),
     "bulk": ("Bulk", "csv / xlsx / txt files"),
     "history": ("History", "previous results & exports"),
@@ -778,8 +778,8 @@ class SMSScreen(BaseScreen):
         card.add_widget(Factory.Icon(icon="sms", size_px=dp(30)))
         card.add_widget(Text(role="title", text="Business SMS"))
         card.add_widget(Text(role="caption", text="Receive texts sent to a business line you own, "
-                             "right here in the app. First you confirm you control the line: an "
-                             "operator calls it and you read back a one-time code shown only to you."))
+                             "right here in the app. Our team verifies your business's authorization "
+                             "for the line (the LOA the carrier requires) before it's enabled."))
         return card
 
     def _render_list(self, numbers):
@@ -794,9 +794,9 @@ class SMSScreen(BaseScreen):
             for number in numbers:
                 card.add_widget(self._number_row(number))
             page.add_widget(card)
-        page.add_widget(Text(role="caption", text="Only for a business line you own. Enabling hosting "
-                             "also requires the authorization (LOA) the provider asks for. We never "
-                             "show messages for a number until control of the line is confirmed."))
+        page.add_widget(Text(role="caption", text="Only for a business line you own. A number is "
+                             "enabled only after our team verifies your authorization (LOA) for it, "
+                             "and messages are only ever shown to the account that owns the line."))
 
     def _number_row(self, number):
         label, tone = STATUS_LABELS.get(number["status"], (number["status"], T.muted))
@@ -804,25 +804,26 @@ class SMSScreen(BaseScreen):
         row = Factory.JobRow(
             title=number["e164"],
             meta=label,
-            action_text="Open inbox" if verified else "Show code",
-            action_icon="inbox" if verified else "ring",
+            action_text="Open inbox" if verified else "Cancel",
+            action_icon="inbox" if verified else "close",
             on_action=(lambda e=number["e164"]: self.open_inbox(e)) if verified
-            else (lambda e=number["e164"]: self.resend_code(e)))
+            else (lambda e=number["e164"]: self.cancel_request(e)))
         return row
 
-    # ---- add / verify
+    # ---- add / request
 
     def show_add(self):
         self.state = "add"
         page = self.page()
         card = Card(line=T.border_hi)
         card.add_widget(Text(role="title", text="Add a business line"))
-        card.add_widget(Text(role="caption", text="Enter a phone number your business owns. We'll "
-                             "check it, then confirm you control it before any messages appear."))
+        card.add_widget(Text(role="caption", text="Enter a phone number your business owns. Our team "
+                             "verifies your authorization for the line (LOA) before it is enabled and "
+                             "any messages appear."))
         self.number_field = Field(label="Business phone number", hint="+1 312 555 0100",
                                   input_type="tel", leading_icon="phone")
         card.add_widget(self.number_field)
-        submit = AppButton(text="Request verification", icon="verified")
+        submit = AppButton(text="Submit for verification", icon="verified")
         submit.bind(on_release=lambda *_: self.submit_add(submit))
         card.add_widget(submit)
         cancel = AppButton(text="Back", icon="close", variant="ghost")
@@ -839,7 +840,7 @@ class SMSScreen(BaseScreen):
 
         def done(req):
             button.busy = False
-            self.show_pending(req)
+            self.show_submitted(req)
 
         def failed(exc):
             button.busy = False
@@ -850,29 +851,26 @@ class SMSScreen(BaseScreen):
 
         background(lambda: self.app.hosting.request_hosting(raw), done, failed)
 
-    def resend_code(self, e164):
-        def done(req):
-            self.show_pending(req)
-
-        background(lambda: self.app.hosting.request_hosting(e164), done,
+    def cancel_request(self, e164):
+        background(lambda: self.app.hosting.release(e164),
+                  lambda *_: self.refresh(),
                   lambda e: self.app.toast(friendly_error(e), "error"))
 
-    def show_pending(self, req):
-        self.state = "pending"
+    def show_submitted(self, req):
+        self.state = "submitted"
         page = self.page()
         card = Card(line=T.border_hi)
-        card.add_widget(Text(role="title", text="Confirm you control this line"))
-        card.add_widget(Text(role="caption", text=f"An operator will call [b]{req.e164}[/b]. When "
-                             "it rings, answer and read this code to them:"))
-        code = Label(text=f"{req.code[:3]} {req.code[3:]}", font_name="MonoBold", font_size=sp(42),
-                     color=T.accent, size_hint_y=None, height=dp(72), halign="center",
-                     valign="middle")
-        code.bind(size=lambda w, *_: setattr(w, "text_size", w.size))
-        card.add_widget(code)
-        card.add_widget(Text(role="caption", text="The code is shown only to you, so reading it back "
-                             "over a call to this number proves the line is yours. It expires in "
-                             "15 minutes. Do not share it any other way.", color=T.muted))
-        done = AppButton(text="Done - back to my numbers", icon="check", variant="outline")
+        top = BoxLayout(size_hint_y=None, height=dp(30), spacing=dp(10))
+        top.add_widget(Factory.Icon(icon="verified", color=T.accent, pos_hint={"center_y": .5}))
+        top.add_widget(Text(role="title", text="Request submitted", pos_hint={"center_y": .5}))
+        card.add_widget(top)
+        card.add_widget(Text(role="caption", text=f"We received your hosting request for "
+                             f"[b]{req.e164}[/b]. Our team will verify your business's authorization "
+                             "for this line (the Letter of Authorization the carrier requires) and "
+                             "enable it. You'll see its messages here once it's verified."))
+        card.add_widget(Text(role="caption", text="This number can only be enabled for a business "
+                             "that is authorized for the line.", color=T.muted))
+        done = AppButton(text="Back to my numbers", icon="check", variant="outline")
         done.bind(on_release=lambda *_: self.refresh())
         card.add_widget(done)
         page.add_widget(card)
