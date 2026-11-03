@@ -1,15 +1,11 @@
-import sys
 import threading
 from pathlib import Path
 
 import pytest
 
-ANDROID_APP = Path(__file__).resolve().parents[1] / "android" / "app"
-sys.path.insert(0, str(ANDROID_APP))
-
-import services  # noqa: E402
-import telnyx_client  # noqa: E402
-from tests.conftest import lookup_payload  # noqa: E402
+import services
+import telnyx_client
+from conftest import lookup_payload
 
 KEY = "KEY0123456789ABCDEFGHIJKLMNOP_android"
 

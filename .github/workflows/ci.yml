@@ -1,8 +1,8 @@
-name: Android APK
+name: PHONEINTEL CI
 
 on:
   push:
-    branches: [main, "claude/**"]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -21,9 +21,40 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements-dev.txt
-      - name: Run test suite
+          pip install -r terminal/requirements-dev.txt
+      - name: Terminal app tests (CMD / PowerShell / Termux / Linux)
+        working-directory: terminal
         run: python -m pytest -q
+      - name: Android engine copy is in sync with terminal/
+        run: python android/sync_core.py --check
+      - name: Android service tests
+        working-directory: android
+        run: python -m pytest -q tests
+      - name: Termux / Linux launcher smoke test
+        working-directory: terminal
+        run: printf '12\n' | ./phoneintel.sh | tee launcher.log && grep -q "MAIN MENU" launcher.log
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Terminal app tests on Windows
+        working-directory: terminal
+        shell: cmd
+        run: |
+          python -m pip install -r requirements-dev.txt
+          python -m pytest -q
+      - name: CMD launcher smoke test (phoneintel.bat)
+        working-directory: terminal
+        shell: cmd
+        run: |
+          (echo 12) | phoneintel.bat > launcher.log 2>&1
+          type launcher.log
+          findstr /c:"MAIN MENU" launcher.log
 
   ui:
     runs-on: ubuntu-24.04
@@ -37,10 +68,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends xvfb libgl1 libegl1 libmtdev1 xclip
           python -m pip install --upgrade pip
-          pip install -r requirements.txt kivy==2.3.1
+          pip install -r terminal/requirements.txt kivy==2.3.1
       - name: Render every screen (phone, small phone, tablet)
         run: |
-          python android/sync_core.py
           cd android
           xvfb-run -a -s "-screen 0 2600x2600x24" python tools/ui_snapshot.py ../ui-shots/phone 412 892 2
           xvfb-run -a -s "-screen 0 2600x2600x24" python tools/ui_snapshot.py ../ui-shots/small 360 640 2
@@ -52,7 +82,7 @@ jobs:
           path: ui-shots
 
   apk:
-    needs: [tests, ui]
+    needs: [tests, windows, ui]
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
@@ -86,9 +116,6 @@ jobs:
           path: ~/.buildozer
           key: buildozer-global-${{ runner.os }}-${{ hashFiles('android/buildozer.spec') }}
           restore-keys: buildozer-global-${{ runner.os }}-
-
-      - name: Sync shared engine into the app
-        run: python android/sync_core.py
 
       - name: Build debug APK
         working-directory: android
