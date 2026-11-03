@@ -41,6 +41,7 @@ telnyx_client.TelnyxClient.lookup = fake_lookup
 telnyx_client.TelnyxClient.check_connection = lambda self: {"data": {"balance": "42.10", "currency": "USD"}}
 
 import main as app_main  # noqa: E402
+from sms_hosting import VerificationRequest as VReq  # noqa: E402
 from kivy.clock import Clock  # noqa: E402
 from kivy.core.window import Window  # noqa: E402
 
@@ -80,6 +81,17 @@ def shot(name):
     return take
 
 
+def seed_sms(*_):
+    from hosting_db import HostingDB
+    from sms_hosting import SMSHostingService
+    req = app.hosting.request_hosting("(312) 555-0100")
+    with HostingDB(app.hosting.db_path) as db:
+        s = SMSHostingService(db)
+        s.confirm_ownership(req.e164, req.code)
+        s.ingest_inbound(req.e164, "+14155550199", "Your appointment is confirmed for 3pm tomorrow.")
+        s.ingest_inbound(req.e164, "+18665551234", "Order #4821 has shipped. Reply STOP to opt out.")
+
+
 def step_list():
     a = app
     sm = lambda: a.root.ids.sm  # noqa: E731
@@ -102,6 +114,16 @@ def step_list():
         (0.1, lambda *_: setattr(sm().get_screen("lookup").ids.number, "text", "+44 20 7946 0958")),
         (0.2, lambda *_: sm().get_screen("lookup").run_free()),
         (1.0, shot("06b_lookup_free")),
+        (0.1, seed_sms),
+        (0.2, lambda *_: a.go("sms")),
+        (0.8, shot("06c_sms_numbers")),
+        (0.1, lambda *_: sm().get_screen("sms").show_add()),
+        (0.5, shot("06d_sms_add")),
+        (0.1, lambda *_: sm().get_screen("sms").show_pending(
+            VReq("+12025550123", "482913", "2026-01-01T00:00:00+00:00"))),
+        (0.5, shot("06e_sms_verify")),
+        (0.1, lambda *_: sm().get_screen("sms").open_inbox("+13125550100")),
+        (0.8, shot("06f_sms_inbox")),
         (0.1, lambda *_: a.go("bulk")),
         (0.8, shot("07_bulk_idle")),
         (0.1, lambda *_: sm().get_screen("bulk").load(sample)),
@@ -122,6 +144,9 @@ def step_list():
         (0.3, lambda *_: setattr(sm().get_screen("settings").fields["concurrency"], "text", "99")),
         (0.1, lambda *_: sm().get_screen("settings").save_settings()),
         (0.8, shot("14_settings_error")),
+        (0.1, lambda *_: setattr(sm().get_screen("settings"), "reveal_account", True)),
+        (0.1, lambda *_: setattr(sm().get_screen("settings").children[0], "scroll_y", 0.0)),
+        (0.6, shot("15_settings_account")),
         (0.3, lambda *_: a.stop()),
     ]
     return steps

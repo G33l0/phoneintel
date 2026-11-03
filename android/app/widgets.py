@@ -230,8 +230,8 @@ class NavBar(BoxLayout):
     current = StringProperty("home")
     rail = BooleanProperty(False)
     items = ListProperty([("home", "Home", "home"), ("lookup", "Lookup", "search"),
-                          ("bulk", "Bulk", "upload"), ("history", "History", "history"),
-                          ("settings", "Settings", "settings")])
+                          ("sms", "SMS", "sms"), ("bulk", "Bulk", "upload"),
+                          ("history", "History", "history"), ("settings", "Settings", "settings")])
     __events__ = ("on_navigate",)
 
     def on_kv_post(self, *_):

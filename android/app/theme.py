@@ -56,6 +56,8 @@ ICONS = {
     "chart": "", "insights": "", "bolt": "", "save": "",
     "file": "", "resume": "", "stop": "", "tune": "", "shield": "",
     "lock": "", "lan": "", "cloud": "",
+    "sms": "", "chat": "", "mail": "", "inbox": "", "forum": "", "verified": "",
+    "call": "", "ring": "", "add": "", "forward": "", "copy": "", "badge": "",
 }
 
 FONT_UI = "Roboto"

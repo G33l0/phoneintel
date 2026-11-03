@@ -943,6 +943,12 @@
 
 # ---------------------------------------------------------------- history
 
+<SMSScreen>:
+    name: "sms"
+    PageScroll:
+        Page:
+            id: page
+
 <HistoryScreen>:
     name: "history"
     BoxLayout:
@@ -1140,6 +1146,48 @@
                     icon: "check"
                     variant: "outline"
                     on_release: root.save_settings()
+            Card:
+                BoxLayout:
+                    size_hint_y: None
+                    height: dp(28)
+                    spacing: dp(10)
+                    Icon:
+                        icon: "badge"
+                        pos_hint: {"center_y": .5}
+                    Text:
+                        role: "title"
+                        text: "Your account ID"
+                        pos_hint: {"center_y": .5}
+                Text:
+                    role: "caption"
+                    text: "Your anonymous 18-digit ID. No email or phone needed. This is your only way back into your account - save it somewhere safe. We store only a hash of it, never the number itself."
+                Label:
+                    text: root.account_display
+                    font_name: FONT_MONO_BOLD
+                    font_size: sp(20)
+                    color: T.accent
+                    size_hint_y: None
+                    height: dp(40)
+                    halign: "center"
+                    valign: "middle"
+                    text_size: self.size
+                GridLayout:
+                    cols: 2
+                    spacing: dp(10)
+                    size_hint_y: None
+                    height: self.minimum_height
+                    AppButton:
+                        text: "Show" if not root.reveal_account else "Hide"
+                        icon: "visibility" if not root.reveal_account else "visibility_off"
+                        variant: "outline"
+                        compact: True
+                        on_release: root.toggle_account_reveal()
+                    AppButton:
+                        text: "Copy"
+                        icon: "copy"
+                        variant: "outline"
+                        compact: True
+                        on_release: root.copy_account_id()
             Card:
                 BoxLayout:
                     size_hint_y: None

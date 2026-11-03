@@ -13,16 +13,19 @@ from kivy.clock import Clock, mainthread  # noqa: E402
 from kivy.core.clipboard import Clipboard  # noqa: E402
 from kivy.core.window import Window  # noqa: E402
 from kivy.factory import Factory  # noqa: E402
-from kivy.metrics import dp  # noqa: E402
+from kivy.metrics import dp, sp  # noqa: E402
 from kivy.properties import BooleanProperty, NumericProperty, ObjectProperty, StringProperty  # noqa: E402
 from kivy.uix.behaviors import ButtonBehavior  # noqa: E402
 from kivy.uix.boxlayout import BoxLayout  # noqa: E402
+from kivy.uix.label import Label  # noqa: E402
 from kivy.uix.floatlayout import FloatLayout  # noqa: E402
 from kivy.uix.recycleview.views import RecycleDataViewBehavior  # noqa: E402
 from kivy.uix.screenmanager import FadeTransition, Screen  # noqa: E402
 
 import theme  # noqa: E402
 from android_bridge import IS_ANDROID, AndroidBridge  # noqa: E402
+from hosting_service import HostingService  # noqa: E402
+from sms_hosting import HostingError  # noqa: E402
 from config import APP_VERSION, DEFAULT_SETTINGS, SETTING_DESCRIPTIONS, is_plausible_key  # noqa: E402
 from services import PhoneIntelService  # noqa: E402
 from telnyx_client import AuthenticationError, TelnyxError  # noqa: E402
@@ -38,6 +41,7 @@ PAGE_INFO = {
     "lookup": ("Lookup", "carrier & line type"),
     "bulk": ("Bulk", "csv / xlsx / txt files"),
     "history": ("History", "previous results & exports"),
+    "sms": ("Business SMS", "receive texts for a line you own"),
     "settings": ("Settings", "api key & engine"),
 }
 BUCKET_ORDER = ["MOBILE", "LANDLINE", "VOIP", "OTHER", "UNKNOWN", "INVALID", "FAILED", "PENDING"]
@@ -645,6 +649,9 @@ class HistoryScreen(BaseScreen):
 
 
 class SettingsScreen(BaseScreen):
+    reveal_account = BooleanProperty(False)
+    account_display = StringProperty("")
+
     def on_kv_post(self, *_):
         self.fields = {}
         grid = self.ids.fields
@@ -656,7 +663,25 @@ class SettingsScreen(BaseScreen):
             self.fields[name] = field
             grid.add_widget(field)
 
+    def _account_masked(self, grouped: str) -> str:
+        return "----" + grouped[-5:] if len(grouped) >= 5 else "****"
+
+    def _apply_account_display(self):
+        grouped = self.app.hosting.account_id_grouped()
+        self.account_display = grouped if self.reveal_account else self._account_masked(grouped)
+
+    def on_reveal_account(self, *_):
+        self._apply_account_display()
+
+    def toggle_account_reveal(self):
+        self.reveal_account = not self.reveal_account
+
+    def copy_account_id(self):
+        Clipboard.copy(self.app.hosting.account_id())
+        self.app.toast("Account ID copied. Store it somewhere safe.", "check", 3)
+
     def refresh(self):
+        self._apply_account_display()
         background(self.app.service.settings, self._fill)
 
     def _fill(self, settings):
@@ -731,6 +756,177 @@ class SettingsScreen(BaseScreen):
         self.app.toast("Settings saved", "check")
 
 
+STATUS_LABELS = {
+    "pending_verification": ("Verification pending", T.warn),
+    "verified": ("Verified", T.accent),
+    "hosting_active": ("Active", T.accent),
+}
+
+
+class SMSScreen(BaseScreen):
+    def refresh(self):
+        background(self.app.hosting.numbers, self._render_list,
+                  lambda e: self.app.toast(friendly_error(e), "error"))
+
+    def page(self):
+        page = self.ids.page
+        page.clear_widgets()
+        return page
+
+    def _intro_card(self):
+        card = Card(line=T.border_hi)
+        card.add_widget(Factory.Icon(icon="sms", size_px=dp(30)))
+        card.add_widget(Text(role="title", text="Business SMS"))
+        card.add_widget(Text(role="caption", text="Receive texts sent to a business line you own, "
+                             "right here in the app. First you confirm you control the line: an "
+                             "operator calls it and you read back a one-time code shown only to you."))
+        return card
+
+    def _render_list(self, numbers):
+        page = self.page()
+        page.add_widget(self._intro_card())
+        add = AppButton(text="Add a business line you own", icon="add")
+        add.bind(on_release=lambda *_: self.show_add())
+        page.add_widget(add)
+        if numbers:
+            page.add_widget(SectionTitle(text="Your numbers", icon="verified"))
+            card = Card(spacing=dp(2))
+            for number in numbers:
+                card.add_widget(self._number_row(number))
+            page.add_widget(card)
+        page.add_widget(Text(role="caption", text="Only for a business line you own. Enabling hosting "
+                             "also requires the authorization (LOA) the provider asks for. We never "
+                             "show messages for a number until control of the line is confirmed."))
+
+    def _number_row(self, number):
+        label, tone = STATUS_LABELS.get(number["status"], (number["status"], T.muted))
+        verified = number["status"] in ("verified", "hosting_active")
+        row = Factory.JobRow(
+            title=number["e164"],
+            meta=label,
+            action_text="Open inbox" if verified else "Show code",
+            action_icon="inbox" if verified else "ring",
+            on_action=(lambda e=number["e164"]: self.open_inbox(e)) if verified
+            else (lambda e=number["e164"]: self.resend_code(e)))
+        return row
+
+    # ---- add / verify
+
+    def show_add(self):
+        self.state = "add"
+        page = self.page()
+        card = Card(line=T.border_hi)
+        card.add_widget(Text(role="title", text="Add a business line"))
+        card.add_widget(Text(role="caption", text="Enter a phone number your business owns. We'll "
+                             "check it, then confirm you control it before any messages appear."))
+        self.number_field = Field(label="Business phone number", hint="+1 312 555 0100",
+                                  input_type="tel", leading_icon="phone")
+        card.add_widget(self.number_field)
+        submit = AppButton(text="Request verification", icon="verified")
+        submit.bind(on_release=lambda *_: self.submit_add(submit))
+        card.add_widget(submit)
+        cancel = AppButton(text="Back", icon="close", variant="ghost")
+        cancel.bind(on_release=lambda *_: self.refresh())
+        card.add_widget(cancel)
+        page.add_widget(card)
+
+    def submit_add(self, button):
+        raw = self.number_field.text.strip()
+        if not raw:
+            self.number_field.error = "Enter a phone number"
+            return
+        button.busy = True
+
+        def done(req):
+            button.busy = False
+            self.show_pending(req)
+
+        def failed(exc):
+            button.busy = False
+            if isinstance(exc, HostingError):
+                self.number_field.error = str(exc)
+            else:
+                self.app.toast(friendly_error(exc), "error")
+
+        background(lambda: self.app.hosting.request_hosting(raw), done, failed)
+
+    def resend_code(self, e164):
+        def done(req):
+            self.show_pending(req)
+
+        background(lambda: self.app.hosting.request_hosting(e164), done,
+                  lambda e: self.app.toast(friendly_error(e), "error"))
+
+    def show_pending(self, req):
+        self.state = "pending"
+        page = self.page()
+        card = Card(line=T.border_hi)
+        card.add_widget(Text(role="title", text="Confirm you control this line"))
+        card.add_widget(Text(role="caption", text=f"An operator will call [b]{req.e164}[/b]. When "
+                             "it rings, answer and read this code to them:"))
+        code = Label(text=f"{req.code[:3]} {req.code[3:]}", font_name="MonoBold", font_size=sp(42),
+                     color=T.accent, size_hint_y=None, height=dp(72), halign="center",
+                     valign="middle")
+        code.bind(size=lambda w, *_: setattr(w, "text_size", w.size))
+        card.add_widget(code)
+        card.add_widget(Text(role="caption", text="The code is shown only to you, so reading it back "
+                             "over a call to this number proves the line is yours. It expires in "
+                             "15 minutes. Do not share it any other way.", color=T.muted))
+        done = AppButton(text="Done - back to my numbers", icon="check", variant="outline")
+        done.bind(on_release=lambda *_: self.refresh())
+        card.add_widget(done)
+        page.add_widget(card)
+
+    # ---- inbox
+
+    def open_inbox(self, e164):
+        self.state = "inbox"
+        self.active_number = e164
+
+        def loaded(messages):
+            self.app.hosting.mark_read(e164)
+            self._render_inbox(e164, messages)
+
+        background(lambda: self.app.hosting.inbox(e164), loaded,
+                  lambda e: self.app.toast(friendly_error(e), "error"))
+
+    def _render_inbox(self, e164, messages):
+        page = self.page()
+        header = Card(line=T.border_hi, spacing=dp(6))
+        top = BoxLayout(size_hint_y=None, height=dp(30), spacing=dp(10))
+        top.add_widget(Factory.Icon(icon="verified", color=T.accent, pos_hint={"center_y": .5}))
+        top.add_widget(Text(role="title", text=e164, pos_hint={"center_y": .5}))
+        header.add_widget(top)
+        header.add_widget(Text(role="caption", text="Inbound SMS for this verified line. Only your "
+                               "account can see these."))
+        back = AppButton(text="Back to my numbers", icon="close", variant="ghost", compact=True)
+        back.bind(on_release=lambda *_: self.refresh())
+        header.add_widget(back)
+        page.add_widget(header)
+        if not messages:
+            empty = Card()
+            empty.add_widget(Text(role="caption", text="No messages yet. Texts sent to this number "
+                                  "will appear here once hosting is active."))
+            page.add_widget(empty)
+            return
+        for message in messages:
+            page.add_widget(self._message_card(message))
+
+    def _message_card(self, message):
+        card = Card(spacing=dp(4))
+        top = BoxLayout(size_hint_y=None, height=dp(22), spacing=dp(8))
+        top.add_widget(Text(role="label", text=message.get("from_number") or "Unknown sender",
+                            pos_hint={"center_y": .5}))
+        when = Label(text=fmt_time(message.get("received_at")), font_name="Mono", font_size=sp(11),
+                     color=T.faint, halign="right", valign="middle", size_hint_x=None, width=dp(130))
+        when.bind(size=lambda w, *_: setattr(w, "text_size", w.size))
+        top.add_widget(when)
+        card.add_widget(top)
+        body = Text(text=message.get("body") or "", role="body")
+        card.add_widget(body)
+        return card
+
+
 class Root(FloatLayout):
     wide = BooleanProperty(False)
     page_title = StringProperty("PHONEINTEL")
@@ -754,12 +950,14 @@ class PhoneIntelApp(App):
         Window.softinput_mode = "below_target"
         data_dir = Path(self.user_data_dir)
         self.service = PhoneIntelService(data_dir)
+        self.hosting = HostingService(data_dir / "hosting")
         self.bridge = AndroidBridge(data_dir / "cache", Path(os.environ.get("PHONEINTEL_DOWNLOADS", Path.home() / "Downloads")))
         root = Root()
         self.shell = root
         sm = root.ids.sm
         sm.transition = FadeTransition(duration=0.14)
-        for screen in (HomeScreen(), LookupScreen(), BulkScreen(), HistoryScreen(), SettingsScreen()):
+        for screen in (HomeScreen(), LookupScreen(), SMSScreen(), BulkScreen(),
+                       HistoryScreen(), SettingsScreen()):
             sm.add_widget(screen)
         sm.bind(current=self._on_screen)
         self.refresh_key_state()

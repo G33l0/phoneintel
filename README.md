@@ -12,6 +12,12 @@ The repository holds two independent apps:
 | [`terminal/`](terminal/README.md) | Interactive hacker-style terminal app (Rich) | Windows CMD, PowerShell, Android Termux, Linux, macOS | `phoneintel.bat` (Windows) / `./phoneintel.sh` (Termux, Linux) |
 | [`android/`](android/README.md) | Native Android app (Kivy) packaged as an APK | Android 7.0+ | Install the APK from the CI artifact |
 
+The apps also include a **free offline validation** tier (2/day, no API key) and the Android app adds **Business SMS** - receiving texts for a business line the user owns, gated behind a call-back ownership proof (see `android/README.md`).
+
+Both apps include a **free offline validation** tier (2/day, no API key). The Android app also
+adds **Business SMS** — receiving texts for a business line the user owns, gated behind a
+call-back ownership proof (details in [`android/README.md`](android/README.md)).
+
 Each folder is self-contained: you can copy `terminal/` to a PC or a Termux home directory
 without anything from `android/`, and `android/` builds its APK without `terminal/`.
 
