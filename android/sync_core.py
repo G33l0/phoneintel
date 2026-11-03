@@ -9,8 +9,7 @@ import sys
 from pathlib import Path
 
 CORE = ["config.py", "validator.py", "classifier.py", "telnyx_client.py", "engine.py",
-        "free_validate.py", "validation_provider.py", "admin_config.py", "database.py",
-        "bulk_processor.py", "exporter.py"]
+        "free_validate.py", "validation_provider.py", "admin_config.py", "database.py"]
 HERE = Path(__file__).resolve().parent
 SOURCE = HERE.parent / "terminal"
 TARGET = HERE / "app"

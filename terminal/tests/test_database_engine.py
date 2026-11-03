@@ -40,7 +40,8 @@ def test_failed_lookups_never_cached(make_engine, db):
 
 def test_api_error_becomes_failed_result(make_engine):
     engine = make_engine(FakeClient(error=APIError("Telnyx API error (422)", 422)))
-    assert engine.lookup("6502530000").bucket == "FAILED"
+    result = engine.lookup("6502530000")
+    assert result.status == "FAILED" and result.classification == "UNKNOWN"
 
 
 def test_auth_error_propagates(make_engine):
@@ -76,11 +77,11 @@ def test_cache_disabled_with_zero_days(make_engine):
 def test_settings_persist_across_connections(tmp_path):
     path = tmp_path / "s.db"
     first = Database(path)
-    assert first.get_setting("concurrency") == "4"
-    first.set_setting("concurrency", "8")
+    assert first.get_setting("max_retries") == "3"
+    first.set_setting("max_retries", "8")
     first.close()
     second = Database(path)
-    assert second.get_setting("concurrency") == "8"
+    assert second.get_setting("max_retries") == "8"
     second.close()
 
 
@@ -96,13 +97,13 @@ def test_results_persist_across_connections(tmp_path):
 
 def test_schema_tables_exist(db):
     names = {r[0] for r in db.conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    assert {"phone_numbers", "lookup_results", "bulk_jobs", "job_records", "job_statistics",
-            "settings"} <= names
+    assert {"phone_numbers", "lookup_results", "settings", "free_usage", "admin_settings"} <= names
 
 
-def test_latest_successful_ignores_failures(make_engine, db):
+def test_global_stats_counts_classifications(make_engine, db):
     engine = make_engine(FakeClient(default="landline"))
     engine.lookup("6502530000")
-    db.save_result(failed_result("x", "+16502530000", "later failure"))
-    latest = db.latest_successful(("LANDLINE",))
-    assert [r.e164 for r in latest] == ["+16502530000"]
+    db.save_result(failed_result("x", "+12125551234", "later failure"))
+    stats = db.global_stats()
+    assert stats["unique_numbers"] >= 1
+    assert stats["by_classification"].get("LANDLINE") == 1

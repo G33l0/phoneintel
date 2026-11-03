@@ -1,20 +1,14 @@
-import threading
-from pathlib import Path
 
 from rich import box
 from rich.align import Align
 from rich.console import Console, Group
 from rich.panel import Panel
-from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from rich.prompt import Confirm, Prompt
 from rich.table import Table
 from rich.text import Text
 from rich.theme import Theme
 
-import exporter
-from bulk_processor import (BulkInputError, BulkProcessor, PreparedJob, clean_path, create_job,
-                            detect_column, estimate, load_file, prepare_job)
-from classifier import EXPORT_BUCKETS, LookupResult
+from classifier import LookupResult
 from config import (APP_NAME, APP_VERSION, DEFAULT_SETTINGS, SETTING_DESCRIPTIONS, AppConfig,
                     is_plausible_key, mask_key, validate_setting)
 from database import Database
@@ -42,18 +36,13 @@ BANNER = r"""
 
 MENU = [
     ("1", "Single Phone Number Lookup"),
-    ("2", "Bulk Phone Number Classification"),
+    ("2", "Free Phone Validation (offline, no key)"),
     ("3", "View Previous Results"),
-    ("4", "Export Mobile Numbers"),
-    ("5", "Export Landline Numbers"),
-    ("6", "Export VoIP Numbers"),
-    ("7", "Export Other Numbers"),
-    ("8", "View Processing Statistics"),
-    ("9", "Telnyx API Configuration"),
-    ("10", "Test API Connection"),
-    ("11", "Application Information"),
-    ("12", "Free Phone Validation (offline, no key)"),
-    ("13", "Exit"),
+    ("4", "View Statistics"),
+    ("5", "Telnyx API Configuration"),
+    ("6", "Test API Connection"),
+    ("7", "Application Information"),
+    ("8", "Exit"),
 ]
 
 CLASS_STYLES = {
@@ -70,13 +59,10 @@ class App:
         self.config.ensure_dirs()
         self.console = console or Console(theme=THEME, highlight=False)
         self.db = Database(self.config.db_path)
-        self.db.mark_stale_running_jobs()
         self.actions = {
-            "1": self.single_lookup, "2": self.bulk_menu, "3": self.view_results,
-            "4": lambda: self.export_bucket("MOBILE"), "5": lambda: self.export_bucket("LANDLINE"),
-            "6": lambda: self.export_bucket("VOIP"), "7": lambda: self.export_bucket("OTHER"),
-            "8": self.statistics, "9": self.configure, "10": self.test_connection,
-            "11": self.information, "12": self.free_validation,
+            "1": self.single_lookup, "2": self.free_validation, "3": self.view_results,
+            "4": self.statistics, "5": self.configure, "6": self.test_connection,
+            "7": self.information,
         }
 
     @property
@@ -91,7 +77,7 @@ class App:
             while True:
                 self.show_menu()
                 choice = self.ask("Select an option", choices=[k for k, _ in MENU], show_choices=False)
-                if choice == "13":
+                if choice == "8":
                     self.console.print("[accent]Session closed. Goodbye.[/]")
                     return
                 self.console.clear()
@@ -157,7 +143,7 @@ class App:
         if key:
             status = Text.assemble(("API KEY ", "dim"), (mask_key(key), "value"), ("  READY", "ok"))
         else:
-            status = Text("API KEY NOT CONFIGURED - use option 9", style="warn")
+            status = Text("API KEY NOT CONFIGURED - use option 5", style="warn")
         subtitle = Text(f"Phone Number Intelligence v{APP_VERSION}  |  Powered by Telnyx Number Lookup", style="dim")
         self.console.print(self.panel(Group(Align.center(banner), Align.center(subtitle), Align.center(status)),
                                       "TERMINAL"))
@@ -184,7 +170,7 @@ class App:
         self.header("SINGLE PHONE NUMBER LOOKUP")
         engine = self.engine()
         if engine.client is None:
-            return self.error("No Telnyx API key configured. Use option 9 first.")
+            return self.error("No Telnyx API key configured. Use option 5 first.")
         raw = self.ask(f"Enter phone number (default region {engine.settings.default_region})").strip()
         if not raw:
             return self.error("No number entered.")
@@ -196,7 +182,7 @@ class App:
             with self.console.status("[accent]Querying Telnyx...[/]", spinner="dots"):
                 result = engine.lookup(raw, force=force)
         except AuthenticationError as exc:
-            return self.error(f"{exc}\nCheck your API key with option 9.")
+            return self.error(f"{exc}\nCheck your API key with option 5.")
         self.show_result(result)
 
     def free_validation(self) -> None:
@@ -260,150 +246,9 @@ class App:
             rows.append(("Notes", Text(result.error, style="warn")))
         self.console.print(self.panel(self.key_value(rows), "LOOKUP RESULT"))
 
-    # ---------- 2. bulk ----------
-
-    def bulk_menu(self) -> None:
-        self.header("BULK PHONE NUMBER CLASSIFICATION")
-        engine = self.engine()
-        if engine.client is None:
-            return self.error("No Telnyx API key configured. Use option 9 first.")
-        resumable = self.db.resumable_jobs()
-        if resumable:
-            self.show_jobs(resumable, "RESUMABLE JOBS")
-            choice = self.ask("Enter a job ID to resume, or press Enter for a new job", default="").strip()
-            if choice:
-                if not choice.isdigit() or int(choice) not in {j["id"] for j in resumable}:
-                    return self.error("That job ID is not resumable.")
-                return self.run_job(engine, int(choice))
-        self.new_bulk_job(engine)
-
-    def new_bulk_job(self, engine: PhoneIntelEngine) -> None:
-        path = clean_path(self.ask("Path to CSV, XLSX or TXT file"))
-        try:
-            with self.console.status("[accent]Reading file...[/]"):
-                table = load_file(path)
-            column = self.choose_column(table, engine.settings.default_region)
-            with self.console.status("[accent]Validating and normalizing numbers...[/]"):
-                prepared = prepare_job(table, column, str(path.resolve()), engine.settings.default_region)
-        except BulkInputError as exc:
-            return self.error(str(exc))
-        force = self.confirm("Force fresh lookups (ignore cache)?", default=False)
-        if not self.review_estimate(prepared, engine, force):
-            return self.console.print("[warn]Bulk job cancelled. No lookups were made.[/]")
-        job_id = create_job(engine, prepared, force)
-        self.run_job(engine, job_id)
-
-    def choose_column(self, source, region: str) -> str:
-        columns = list(source.columns)
-        if len(columns) == 1:
-            return columns[0]
-        detected = detect_column(source, region)
-        table = self.table("COLUMNS")
-        table.add_column("#", style="accent", width=4)
-        table.add_column("Column", overflow="fold")
-        table.add_column("Sample", overflow="fold")
-        for i, name in enumerate(columns, 1):
-            marker = "  <- detected" if name == detected else ""
-            table.add_row(str(i), f"{name}{marker}", str(source.rows[0].get(name, ""))[:30])
-        self.console.print(table)
-        default = str(columns.index(detected) + 1) if detected else None
-        while True:
-            pick = self.ask("Select the phone number column", default=default)
-            if pick and pick.isdigit() and 1 <= int(pick) <= len(columns):
-                return columns[int(pick) - 1]
-            self.console.print("[err]Enter a valid column number.[/]")
-
-    def review_estimate(self, prepared: PreparedJob, engine: PhoneIntelEngine, force: bool) -> bool:
-        with self.console.status("[accent]Checking cache...[/]"):
-            est = estimate(prepared, engine, force)
-        rows = [
-            ("Source file", prepared.source_file),
-            ("Phone column", prepared.column),
-            ("Total rows", str(est.total_rows)),
-            ("Invalid rows (no API cost)", str(est.invalid)),
-            ("Duplicate rows (looked up once)", str(est.duplicates)),
-            ("Unique valid numbers", str(est.unique_valid)),
-            ("Served from cache", str(est.cached)),
-            ("API lookups required", str(est.to_lookup)),
-            ("Estimated cost", f"${est.estimated_cost:,.4f} @ ${est.cost_per_lookup}/lookup"),
-            ("Throttle", f"{engine.settings.requests_per_second} req/s, {engine.settings.concurrency} workers"),
-        ]
-        self.console.print(self.panel(self.key_value(rows), "JOB ESTIMATE"))
-        self.console.print("[dim]Cost is an estimate from your configured rate; confirm current pricing with Telnyx.[/]")
-        if est.unique_valid == 0:
-            self.console.print("[warn]No valid numbers to process; outputs will contain invalid rows only.[/]")
-        return self.confirm("Start bulk processing?", default=False)
-
-    def run_job(self, engine: PhoneIntelEngine, job_id: int) -> None:
-        processor = BulkProcessor(engine)
-        progress = Progress(
-            SpinnerColumn(style="accent"),
-            TextColumn("[accent]Job {task.fields[job]}[/]"),
-            BarColumn(complete_style="bright_green", finished_style="bright_green", bar_width=None),
-            MofNCompleteColumn(),
-            TimeElapsedColumn(),
-            console=self.console, expand=True,
-        )
-        stop = threading.Event()
-        summary = None
-        try:
-            with progress:
-                task = progress.add_task("lookup", total=None, job=job_id)
-
-                def update(done, total, _result):
-                    progress.update(task, completed=done, total=total or 1)
-
-                summary = processor.run(job_id, progress=update, stop_event=stop)
-        except AuthenticationError as exc:
-            self.error(f"{exc}\nJob {job_id} paused. Fix the API key and resume from option 2.")
-        except KeyboardInterrupt:
-            self.console.print(f"\n[warn]Job {job_id} interrupted. Progress saved; resume from option 2.[/]")
-        except TelnyxError as exc:
-            self.error(f"Job {job_id} stopped: {exc}")
-        if summary is None:
-            summary_counts = processor.bucket_counts(job_id)
-            status = self.db.get_job(job_id)["status"]
-        else:
-            summary_counts, status = summary.buckets, summary.status
-        folder = exporter.export_job(self.db, job_id, self.config.export_dir)
-        self.show_job_summary(job_id, status, summary, summary_counts, folder)
-
-    def show_job_summary(self, job_id, status, summary, counts, folder: Path) -> None:
-        table = self.table(f"JOB {job_id} - {status.upper()}")
-        table.add_column("Category", style="label")
-        table.add_column("Rows", justify="right", style="value")
-        for bucket in list(EXPORT_BUCKETS) + ["PENDING"]:
-            if bucket == "PENDING" and not counts.get(bucket):
-                continue
-            table.add_row(bucket, str(counts.get(bucket, 0)))
-        self.console.print(table)
-        if summary is not None:
-            self.console.print(f"[dim]API calls this run:[/] [value]{summary.api_calls}[/]   "
-                               f"[dim]Cache hits:[/] [value]{summary.cache_hits}[/]")
-        self.success(f"Exports written to:\n{folder}")
-
-    def show_jobs(self, jobs: list[dict], title: str) -> None:
-        table = self.table(title)
-        table.add_column("ID", style="accent", justify="right")
-        table.add_column("Status")
-        table.add_column("Rows", justify="right")
-        if not self.narrow:
-            table.add_column("Created")
-        table.add_column("File", overflow="fold")
-        for job in jobs:
-            row = [str(job["id"]), job["status"], str(job["total_rows"])]
-            if not self.narrow:
-                row.append(job["created_at"][:19].replace("T", " "))
-            row.append(Path(job["source_file"]).name)
-            table.add_row(*row)
-        self.console.print(table)
-
-    # ---------- 3. previous results ----------
-
     def view_results(self) -> None:
         self.header("PREVIOUS RESULTS")
-        options = {"1": "Recent lookups", "2": "Search by number", "3": "Bulk jobs",
-                   "4": "Re-export a bulk job", "0": "Back"}
+        options = {"1": "Recent lookups", "2": "Search by number", "0": "Back"}
         self.console.print(self.key_value([(f"[{k}]", v) for k, v in options.items()]))
         choice = self.ask("Select", choices=list(options), show_choices=False, default="1")
         if choice == "1":
@@ -411,20 +256,6 @@ class App:
         elif choice == "2":
             term = self.ask("Number or fragment").strip()
             self.show_results(self.db.recent_results(50, term), f"RESULTS FOR '{term}'")
-        elif choice == "3":
-            jobs = self.db.list_jobs(25)
-            if not jobs:
-                return self.console.print("[warn]No bulk jobs yet.[/]")
-            self.show_jobs(jobs, "BULK JOBS")
-            pick = self.ask("Enter job ID for details, or press Enter", default="").strip()
-            if pick.isdigit() and self.db.get_job(int(pick)):
-                self.show_job_details(int(pick))
-        elif choice == "4":
-            pick = self.ask("Job ID to export").strip()
-            if not pick.isdigit() or not self.db.get_job(int(pick)):
-                return self.error("Job not found.")
-            folder = exporter.export_job(self.db, int(pick), self.config.export_dir)
-            self.success(f"Exports written to:\n{folder}")
 
     def show_results(self, results: list[LookupResult], title: str) -> None:
         if not results:
@@ -445,50 +276,25 @@ class App:
             table.add_row(*row)
         self.console.print(table)
 
-    def show_job_details(self, job_id: int) -> None:
-        job = self.db.get_job(job_id)
-        stats = self.db.job_stats(job_id)
-        rows = [("Status", job["status"]), ("File", job["source_file"]), ("Column", job["column_name"]),
-                ("Rows", str(job["total_rows"])), ("Created", job["created_at"]),
-                ("Finished", job["finished_at"] or "-"), ("Last export", job["export_dir"] or "-")]
-        if job["error"]:
-            rows.append(("Last error", Text(job["error"], style="warn")))
-        rows += [(k.replace("_", " ").title(), str(v)) for k, v in sorted(stats.items())]
-        self.console.print(self.panel(self.key_value(rows), f"JOB {job_id}"))
-
-    # ---------- 4-7. exports ----------
-
-    def export_bucket(self, bucket: str) -> None:
-        self.header(f"EXPORT {bucket} NUMBERS")
-        path, count = exporter.export_bucket_numbers(self.db, bucket, self.config.export_dir)
-        if count == 0:
-            self.console.print(f"[warn]No {bucket.lower()} numbers in the database yet. "
-                               f"An empty file with headers was written.[/]")
-        self.success(f"Exported {count} unique {bucket.lower()} number(s) to:\n{path}")
-
-    # ---------- 8. statistics ----------
+    # ---------- 4. statistics ----------
 
     def statistics(self) -> None:
-        self.header("PROCESSING STATISTICS")
+        self.header("STATISTICS")
         stats = self.db.global_stats()
         rows = [("Unique numbers stored", str(stats["unique_numbers"])),
-                ("Lookup records", str(stats["lookups_total"])),
-                ("Bulk jobs", str(stats["jobs_total"])),
-                ("Bulk API calls", str(int(stats["api_calls"]))),
-                ("Bulk cache hits", str(int(stats["cache_hits"])))]
+                ("Lookup records", str(stats["lookups_total"]))]
         rows += [(f"Status {k}", str(v)) for k, v in sorted(stats["by_status"].items())]
         self.console.print(self.panel(self.key_value(rows), "OVERVIEW"))
-        table = self.table("LATEST CLASSIFICATION PER NUMBER")
-        table.add_column("Classification", style="label")
-        table.add_column("Numbers", justify="right", style="value")
-        total = sum(stats["by_classification"].values()) or 1
-        table.add_column("Share", justify="right", style="dim")
-        for name, count in sorted(stats["by_classification"].items(), key=lambda x: -x[1]):
-            table.add_row(Text(name, style=CLASS_STYLES.get(name, "value")), str(count), f"{count / total:.1%}")
-        self.console.print(table)
-        jobs = self.db.list_jobs(5)
-        if jobs:
-            self.show_jobs(jobs, "RECENT JOBS")
+        if stats["by_classification"]:
+            table = self.table("LATEST CLASSIFICATION PER NUMBER")
+            table.add_column("Classification", style="label")
+            table.add_column("Numbers", justify="right", style="value")
+            total = sum(stats["by_classification"].values()) or 1
+            table.add_column("Share", justify="right", style="dim")
+            for name, count in sorted(stats["by_classification"].items(), key=lambda x: -x[1]):
+                table.add_row(Text(name, style=CLASS_STYLES.get(name, "value")), str(count),
+                              f"{count / total:.1%}")
+            self.console.print(table)
 
     # ---------- 9. configuration ----------
 
@@ -553,7 +359,7 @@ class App:
         self.header("TEST API CONNECTION")
         engine = self.engine()
         if engine.client is None:
-            return self.error("No Telnyx API key configured. Use option 9 first.")
+            return self.error("No Telnyx API key configured. Use option 5 first.")
         try:
             with self.console.status("[accent]Contacting api.telnyx.com...[/]"):
                 payload = engine.client.check_connection()
@@ -577,7 +383,6 @@ class App:
             ("Data requested", "Carrier, line type, portability only"),
             ("Not requested", "Caller name, identity, address"),
             ("Database", str(self.config.db_path)),
-            ("Exports", str(self.config.export_dir)),
             ("Config file", str(self.config.env_path)),
             ("Classifications", "MOBILE, LANDLINE, FIXED_VOIP, NON_FIXED_VOIP, OTHER_VOIP, "
                                 "TOLL_FREE, OTHER, UNKNOWN, INVALID"),

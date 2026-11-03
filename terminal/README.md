@@ -22,18 +22,13 @@ The first screen is the PHONEINTEL main menu.
 | # | Menu option | What it does |
 |---|-------------|--------------|
 | 1 | Single Phone Number Lookup | Validate, normalize and look up one number (uses cache; can force a fresh lookup) |
-| 2 | Bulk Phone Number Classification | Process CSV / XLSX / TXT files, resume interrupted jobs |
-| 3 | View Previous Results | Recent lookups, search, bulk job history/details, re-export a job |
-| 4 | Export Mobile Numbers | Latest successful MOBILE result per number → CSV |
-| 5 | Export Landline Numbers | LANDLINE → CSV |
-| 6 | Export VoIP Numbers | FIXED_VOIP, NON_FIXED_VOIP, OTHER_VOIP → CSV |
-| 7 | Export Other Numbers | TOLL_FREE and OTHER → CSV |
-| 8 | View Processing Statistics | Totals, statuses, classification breakdown, recent jobs |
-| 9 | Telnyx API Configuration | Set/remove API key (hidden input), tune concurrency, throttle, cache, cost |
-| 10 | Test API Connection | Calls `GET /v2/balance` to verify the key (no lookup charge) |
-| 11 | Application Information | Version, paths, data policy |
-| 12 | Free Phone Validation | Offline format/region/line-type estimate, no API key, limited to 5/day |
-| 13 | Exit | |
+| 2 | Free Phone Validation | Offline format/region/line-type estimate, no API key, limited to 5/day |
+| 3 | View Previous Results | Recent lookups and search |
+| 4 | View Statistics | Totals, statuses, classification breakdown |
+| 5 | Telnyx API Configuration | Set/remove API key (hidden input), tune region/retries/timeout/cache |
+| 6 | Test API Connection | Calls `GET /v2/balance` to verify the key (no lookup charge) |
+| 7 | Application Information | Version, paths, data policy |
+| 8 | Exit | |
 
 ### Classifications
 
@@ -46,33 +41,7 @@ The first screen is the PHONEINTEL main menu.
   ambiguous one such as `fixed line or mobile`, the result is `UNKNOWN`.
 * Numbers that fail local validation are `INVALID` and are never sent to the API. Numbers that
   Telnyx reports as `valid_number: false` are also `INVALID`.
-* Network, rate-limit and API errors produce `FAILED` results. They are never cached and are
-  retried when a bulk job is resumed.
-
-### Bulk processing
-
-* Input: `.csv` (comma, semicolon, tab or pipe; header or headerless), `.xlsx` (first sheet),
-  `.txt` (one number per line).
-* Automatic phone-column detection (column name hints + validation ratio) with manual override.
-* E.164 normalization, validation and duplicate detection — each unique number is looked up once.
-* A cost estimate (rows, invalid, duplicates, cached, API lookups needed, estimated USD) is shown,
-  and the job only starts after you confirm.
-* Configurable concurrency, global requests-per-second throttle, retries with exponential backoff,
-  `Retry-After` support on HTTP 429 (which also pauses all workers).
-* Every row is written to SQLite before processing; results are committed per batch.
-  Ctrl+C, a crash or an authentication failure leaves the job resumable from option 2.
-
-Each job writes a folder `exports/job_<id>_<timestamp>/` containing:
-
-```
-MOBILE.csv  LANDLINE.csv  VOIP.csv  OTHER.csv  UNKNOWN.csv  INVALID.csv  FAILED.csv
-COMPLETE_RESULTS.xlsx   (sheets: Results, Summary)
-```
-
-All original columns are preserved in their original order, rows keep their input order, and
-PHONEINTEL appends `pi_*` columns (row, E.164, country, carrier, line type, classification,
-portability, status, duplicate-of row, error, timestamp). If a job is still incomplete, a
-`PENDING.csv` is also written.
+* Network, rate-limit and API errors produce `FAILED` results. They are never cached.
 
 ### Telnyx API reference
 
@@ -90,8 +59,8 @@ portability, status, duplicate-of row, error, timestamp). If a job is still inco
 * Only whitelisted portability fields are stored (ported status/date, line type, SPID/carrier,
   OCN, LRN). City/state fields are discarded.
 * The API key lives in a local `.env` file (permission `600` on Linux/Termux), is entered with
-  hidden input, and is only ever displayed masked (e.g. `KEY0********abcd`). `.env`, `data/` and
-  `exports/` are git-ignored.
+  hidden input, and is only ever displayed masked (e.g. `KEY0********abcd`). `.env` and `data/`
+  are git-ignored.
 
 ---
 
@@ -165,41 +134,27 @@ python main.py
 ## Usage
 
 1. Run `phoneintel.bat` (Windows) or `./phoneintel.sh` (Termux/Linux), or `python main.py`.
-2. Choose **9** → **K** and paste your Telnyx API key (create one in the Telnyx Mission Control
+2. Choose **5** → **K** and paste your Telnyx API key (create one in the Telnyx Mission Control
    portal under *API Keys*). Alternatively copy `.env.example` to `.env` and edit it, or set the
    `TELNYX_API_KEY` environment variable.
-3. Choose **10** to confirm the key is accepted.
+3. Choose **6** to confirm the key is accepted.
 4. Choose **1** for a single number, e.g. `(650) 253-0000` or `+44 20 7946 0958`. Numbers without
-   a `+` prefix use the default region (`US`, configurable in option 9).
-5. Choose **2** for a file. Confirm the detected column, decide whether to force fresh lookups,
-   review the estimate and confirm. Press **Ctrl+C** at any time to stop; progress is saved and the
-   job appears as resumable the next time you choose option 2.
-6. Options **4–7** export the latest successful classification for every number in the database.
+   a `+` prefix use the default region (`US`, configurable in option 5).
+5. Choose **2** for a free offline validation (no key, 5/day), or **3** to review previous lookups.
 
-### Settings (option 9)
+### Settings (option 5)
 
 | Setting | Default | Meaning |
 |---------|---------|---------|
 | default_region | US | Region for numbers without `+` |
-| concurrency | 4 | Parallel worker threads (1–20) |
-| requests_per_second | 5 | Global API throttle (0.2–40) |
 | max_retries | 3 | Retries for 429 / 5xx / network errors |
 | request_timeout | 15 | HTTP timeout in seconds |
 | cache_days | 30 | Successful results reused for this many days (0 disables cache) |
-| batch_size | 100 | Numbers committed to SQLite per batch |
-| cost_per_lookup | 0.0025 | USD used for cost estimates — **verify against your Telnyx pricing** |
 
-Telnyx documents a global limit of roughly 40 requests per second per user across all of
-api.telnyx.com ([rate limiting](https://developers.telnyx.com/docs/development/api-fundamentals/reliability/rate-limiting)),
-so the throttle is capped at 40; the conservative default of 5 leaves headroom for other traffic.
 On HTTP 429 PHONEINTEL waits for `Retry-After` (or backs off exponentially) before continuing.
 
-The default `cost_per_lookup` matches the carrier-lookup rate listed by Telnyx at the time of
-writing; prices vary by destination and volume, so check
-[telnyx.com/pricing/number-lookup](https://telnyx.com/pricing/number-lookup).
-
-`PHONEINTEL_HOME=/some/dir` relocates `.env`, `data/` and `exports/` (useful for Termux shared
-storage or per-project workspaces).
+`PHONEINTEL_HOME=/some/dir` relocates `.env` and `data/` (useful for Termux shared storage or
+per-project workspaces).
 
 
 ---
@@ -213,17 +168,16 @@ main.py            entry point (python main.py)
 interface.py       Rich terminal UI — the only module that imports Rich
 config.py          paths, .env handling, setting defaults and validation
 validator.py       phonenumbers-based validation and E.164 normalization
-classifier.py      LookupResult model, Telnyx response parsing, line-type mapping, export buckets
-telnyx_client.py   HTTP client: auth, throttling, retries, error types
+classifier.py      LookupResult model, Telnyx response parsing, line-type mapping
+telnyx_client.py   HTTP client: auth, retries, error types
+free_validate.py   offline validation (no API); validation_provider.py = paid fallback
+admin_config.py    super-admin config (validation fallback, SMS pricing); admin_tool.py CLI
 engine.py          PhoneIntelEngine: validate → cache → Telnyx → classify → persist
-bulk_processor.py  file loading, column detection, duplicates, estimates, resumable jobs
 database.py        SQLite schema and queries
-exporter.py        CSV / XLSX export
 tests/             pytest suite with mocked HTTP responses
 ```
 
-SQLite tables: `phone_numbers`, `lookup_results`, `bulk_jobs`, `job_records`, `job_statistics`,
-`settings`.
+SQLite tables: `phone_numbers`, `lookup_results`, `settings`, `free_usage`, `admin_settings`.
 
 The engine has no terminal dependency, so it can be reused from a FastAPI service, a Kivy app
 or other Python code:
@@ -236,9 +190,6 @@ engine = PhoneIntelEngine.from_config(AppConfig())
 result = engine.lookup("+16502530000")
 print(result.classification, result.carrier, result.to_dict())
 ```
-
-`BulkProcessor.run()` accepts a `progress(done, total, result)` callback and a
-`threading.Event` to stop a job, so any front end can drive it.
 
 The Android app in `../android` ships its own copy of these engine modules (kept identical by
 `android/sync_core.py`, enforced in CI). Do not ship a Telnyx key inside an APK or browser bundle.

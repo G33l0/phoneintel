@@ -35,11 +35,11 @@ replayed and still cannot manipulate coins, prices, verification, or another use
 
 ## Account identity
 
-- Onboarding mints a cryptographically-random **18-digit** account ID (`identity.py`); no email or
+- Onboarding mints a cryptographically-random **18-character** account ID that mixes uppercase letters and digits in random positions (`identity.py`); no email or
   phone is collected.
 - The raw ID is the user's credential. Only a **salted SHA-256 hash** is persisted; a data leak
   never exposes a usable ID. Comparisons are constant-time.
-- 18 digits is ~60 bits. That is fine against offline attack of the stored hash, but an online
+- 18 characters over a 36-symbol alphabet is ~93 bits. That is strong against offline attack of the stored hash, but an online
   attacker could try to guess active IDs. **The server must therefore rate-limit and lock out**
   authentication attempts per IP/device, require TLS, and (recommended) bind a session to a
   device token after first use so a guessed ID alone is not enough.

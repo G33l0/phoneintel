@@ -8,7 +8,7 @@ from classifier import LookupResult, LookupStatus, failed_result, invalid_result
 from config import FREE_VALIDATION_DAILY_LIMIT, AppConfig
 from database import Database
 from free_validate import FreeValidationResult, validate_offline
-from telnyx_client import AuthenticationError, RateLimiter, TelnyxClient, TelnyxError
+from telnyx_client import AuthenticationError, TelnyxClient, TelnyxError
 from validator import ValidationResult, normalize
 import validation_provider
 
@@ -16,26 +16,18 @@ import validation_provider
 @dataclass
 class EngineSettings:
     default_region: str = "US"
-    concurrency: int = 4
-    requests_per_second: float = 5.0
     max_retries: int = 3
     request_timeout: float = 15.0
     cache_days: int = 30
-    batch_size: int = 100
-    cost_per_lookup: float = 0.0025
 
     @classmethod
     def from_db(cls, db: Database) -> "EngineSettings":
         s = db.all_settings()
         return cls(
             default_region=s["default_region"],
-            concurrency=int(s["concurrency"]),
-            requests_per_second=float(s["requests_per_second"]),
             max_retries=int(s["max_retries"]),
             request_timeout=float(s["request_timeout"]),
             cache_days=int(s["cache_days"]),
-            batch_size=int(s["batch_size"]),
-            cost_per_lookup=float(s["cost_per_lookup"]),
         )
 
 
@@ -168,5 +160,4 @@ def build_client(api_key: str, settings: EngineSettings) -> TelnyxClient:
         api_key,
         timeout=settings.request_timeout,
         max_retries=settings.max_retries,
-        rate_limiter=RateLimiter(settings.requests_per_second),
     )

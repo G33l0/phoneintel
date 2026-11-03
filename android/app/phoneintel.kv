@@ -732,13 +732,13 @@
                 size_hint_y: None
                 height: self.minimum_height
                 AppButton:
-                    text: "Bulk classify"
-                    icon: "upload"
+                    text: "Business SMS"
+                    icon: "sms"
                     variant: "outline"
-                    on_release: app.go("bulk")
+                    on_release: app.go("sms")
                 AppButton:
-                    text: "Export results"
-                    icon: "download"
+                    text: "History"
+                    icon: "history"
                     variant: "outline"
                     on_release: app.go("history")
                 AppButton:
@@ -847,59 +847,6 @@
 
 # ---------------------------------------------------------------- bulk
 
-<BulkScreen>:
-    name: "bulk"
-    PageScroll:
-        id: scroll
-        Page:
-            id: page
-
-<ColumnOption>:
-    size_hint_y: None
-    height: dp(60)
-    padding: [dp(14), dp(8)]
-    spacing: dp(12)
-    canvas.before:
-        Color:
-            rgba: with_alpha(T.accent, .10) if self.selected else T.surface2
-        RoundedRectangle:
-            pos: self.pos
-            size: self.size
-            radius: [dp(14)]
-        Color:
-            rgba: T.accent if self.selected else T.border
-        Line:
-            rounded_rectangle: (self.x, self.y, self.width, self.height, dp(14))
-            width: dp(1.3) if self.selected else dp(1)
-    Label:
-        text: ICONS["check"] if root.selected else ICONS["table"]
-        font_name: FONT_ICON
-        font_size: sp(20)
-        color: T.accent if root.selected else T.faint
-        size_hint_x: None
-        width: dp(24)
-    BoxLayout:
-        orientation: "vertical"
-        Label:
-            text: root.name + ("   [color=00FF7A]DETECTED[/color]" if root.detected else "")
-            markup: True
-            font_name: FONT_MONO_BOLD
-            font_size: sp(14)
-            color: T.text
-            halign: "left"
-            valign: "middle"
-            text_size: self.size
-            shorten: True
-        Label:
-            text: root.sample or "(empty)"
-            font_name: FONT_MONO
-            font_size: sp(12)
-            color: T.muted
-            halign: "left"
-            valign: "middle"
-            text_size: self.size
-            shorten: True
-
 <JobRow>:
     size_hint_y: None
     height: dp(64)
@@ -955,44 +902,6 @@
         orientation: "vertical"
         padding: [max(dp(16), (self.width - dp(760)) / 2), dp(12), max(dp(16), (self.width - dp(760)) / 2), 0]
         spacing: dp(14)
-        Card:
-            padding: dp(14)
-            spacing: dp(10)
-            Text:
-                role: "title"
-                text: "Export latest results"
-            Text:
-                role: "caption"
-                text: "Saves the newest successful classification of every number to Download/PHONEINTEL."
-            GridLayout:
-                cols: 2 if self.width < dp(520) else 4
-                spacing: dp(10)
-                size_hint_y: None
-                height: self.minimum_height
-                AppButton:
-                    text: "Mobile"
-                    icon: "smartphone"
-                    variant: "outline"
-                    compact: True
-                    on_release: root.export("MOBILE")
-                AppButton:
-                    text: "Landline"
-                    icon: "phone"
-                    variant: "outline"
-                    compact: True
-                    on_release: root.export("LANDLINE")
-                AppButton:
-                    text: "VoIP"
-                    icon: "lan"
-                    variant: "outline"
-                    compact: True
-                    on_release: root.export("VOIP")
-                AppButton:
-                    text: "Other"
-                    icon: "tower"
-                    variant: "outline"
-                    compact: True
-                    on_release: root.export("OTHER")
         Field:
             id: search
             hint: "Search number"
@@ -1160,7 +1069,7 @@
                         pos_hint: {"center_y": .5}
                 Text:
                     role: "caption"
-                    text: "Your anonymous 18-digit ID. No email or phone needed. This is your only way back into your account - save it somewhere safe. We store only a hash of it, never the number itself."
+                    text: "Your anonymous 18-character ID (letters and digits). No email or phone needed. This is your only way back into your account - save it somewhere safe. We store only a hash of it, never the ID itself."
                 Label:
                     text: root.account_display
                     font_name: FONT_MONO_BOLD

@@ -13,7 +13,7 @@ version = 1.1.0
 # large geocoder/carrier datasets. charset-normalizer is pinned to 2.1.1, the last
 # pure-Python release (3.x publishes compiled Android wheels that p4a resolves and then
 # the host pip cannot install); requests accepts it (needs >=2,<4).
-requirements = python3,kivy==2.3.1,pyjnius,android,sqlite3,openssl,charset-normalizer==2.1.1,phonenumberslite==9.0.42,python-dotenv==1.2.4,openpyxl==3.1.5,et_xmlfile==2.0.0
+requirements = python3,kivy==2.3.1,pyjnius,android,sqlite3,openssl,charset-normalizer==2.1.1,phonenumberslite==9.0.42,python-dotenv==1.2.4
 
 icon.filename = %(source.dir)s/assets/icon.png
 icon.adaptive_foreground.filename = %(source.dir)s/assets/adaptive_fg.png

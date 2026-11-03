@@ -23,17 +23,6 @@ class LookupStatus(str, Enum):
     FAILED = "FAILED"
 
 
-EXPORT_BUCKETS = ("MOBILE", "LANDLINE", "VOIP", "OTHER", "UNKNOWN", "INVALID", "FAILED")
-
-BUCKET_CLASSES = {
-    "MOBILE": (Classification.MOBILE,),
-    "LANDLINE": (Classification.LANDLINE,),
-    "VOIP": (Classification.FIXED_VOIP, Classification.NON_FIXED_VOIP, Classification.OTHER_VOIP),
-    "OTHER": (Classification.TOLL_FREE, Classification.OTHER),
-    "UNKNOWN": (Classification.UNKNOWN,),
-    "INVALID": (Classification.INVALID,),
-}
-
 _LINE_TYPE_MAP = {
     "mobile": Classification.MOBILE,
     "wireless": Classification.MOBILE,
@@ -78,10 +67,6 @@ class LookupResult:
     error: str | None = None
     looked_up_at: str = field(default_factory=utc_now)
 
-    @property
-    def bucket(self) -> str:
-        return export_bucket(self.status, self.classification)
-
     def to_dict(self) -> dict:
         return asdict(self)
 
@@ -97,15 +82,6 @@ def normalize_line_type(raw: str | None) -> Classification:
     if "voip" in key:
         return Classification.OTHER_VOIP
     return Classification.OTHER
-
-
-def export_bucket(status: str, classification: str) -> str:
-    if status == LookupStatus.FAILED.value:
-        return "FAILED"
-    for bucket, classes in BUCKET_CLASSES.items():
-        if classification in {c.value for c in classes}:
-            return bucket
-    return "UNKNOWN"
 
 
 def invalid_result(raw: str, error: str, e164: str | None = None, country: str | None = None) -> LookupResult:

@@ -39,12 +39,10 @@ Factory.register("Pressable", cls=Pressable)
 PAGE_INFO = {
     "home": ("PHONEINTEL", "business messages on the go"),
     "lookup": ("Lookup", "carrier & line type"),
-    "bulk": ("Bulk", "csv / xlsx / txt files"),
-    "history": ("History", "previous results & exports"),
+    "history": ("History", "previous lookups"),
     "sms": ("Business SMS", "receive texts for a line you own"),
     "settings": ("Settings", "api key & engine"),
 }
-BUCKET_ORDER = ["MOBILE", "LANDLINE", "VOIP", "OTHER", "UNKNOWN", "INVALID", "FAILED", "PENDING"]
 SETTING_LABELS = {
     "default_region": "Default region", "concurrency": "Parallel workers",
     "requests_per_second": "Requests / second", "max_retries": "Max retries",
@@ -189,8 +187,6 @@ class HomeScreen(BaseScreen):
         tiles = [
             ("smartphone", stats["unique_numbers"], "Numbers stored", T.accent),
             ("search", stats["lookups_total"], "Lookups", T.info),
-            ("table", stats["jobs_total"], "Bulk jobs", T.violet),
-            ("cloud", int(stats["api_calls"]), "Bulk API calls", T.warn),
         ]
         for icon, value, caption, tone in tiles:
             grid.add_widget(StatTile(icon=icon, value=f"{value:,}", caption=caption, tone=tone))
@@ -291,303 +287,6 @@ class LookupScreen(BaseScreen):
         Clock.schedule_once(lambda *_: self._scroll_to(card), 0.1)
 
 
-class BulkScreen(BaseScreen):
-    state = StringProperty("idle")
-    stop_event = ObjectProperty(None, allownone=True)
-
-    def on_kv_post(self, *_):
-        self.table = self.detected = self.selected_column = self.prepared = None
-        self.estimate = self.saved = None
-        self.source_name = ""
-        self.job_id = None
-        self.export_folder = None
-
-    def refresh(self):
-        if self.state == "idle":
-            self.show_idle()
-
-    def page(self):
-        page = self.ids.page
-        page.clear_widgets()
-        return page
-
-    # ----- idle
-
-    def show_idle(self):
-        self.state = "idle"
-        background(lambda: (self.app.service.resumable_jobs(), self.app.service.jobs(6)), self._render_idle)
-
-    def _render_idle(self, data):
-        if self.state != "idle":
-            return
-        resumable, recent = data
-        page = self.page()
-        intro = Card(line=T.border_hi)
-        intro.add_widget(Factory.Icon(icon="upload", size_px=dp(34)))
-        intro.add_widget(Text(role="title", text="Bulk classification"))
-        intro.add_widget(Text(role="caption", text="Choose a CSV, XLSX or TXT file. The phone column is detected automatically, duplicates are looked up once and invalid numbers never cost a lookup."))
-        pick = AppButton(text="Choose file", icon="folder")
-        pick.bind(on_release=lambda *_: self.pick())
-        intro.add_widget(pick)
-        page.add_widget(intro)
-        if resumable:
-            page.add_widget(SectionTitle(text="Resume a job", icon="resume"))
-            card = Card(spacing=dp(2))
-            for job in resumable:
-                card.add_widget(self._job_row(job, "Resume", "resume", lambda j=job: self.resume(j["id"])))
-            page.add_widget(card)
-        finished = [j for j in recent if j["status"] == "completed"]
-        if finished:
-            page.add_widget(SectionTitle(text="Recent jobs", icon="history"))
-            card = Card(spacing=dp(2))
-            for job in finished[:5]:
-                card.add_widget(self._job_row(job, "Results", "file", lambda j=job: self.open_job(j["id"])))
-            page.add_widget(card)
-
-    def _job_row(self, job, action, icon, handler):
-        name = Path(job["source_file"]).name
-        meta = f"{job['status'].upper()}  {job['total_rows']:,} rows  {fmt_time(job['created_at'])}"
-        return Factory.JobRow(job_id=job["id"], title=f"#{job['id']}  {name}", meta=meta,
-                              action_text=action, action_icon=icon, on_action=handler)
-
-    def pick(self):
-        if not self.app.key_ok:
-            self.app.toast("Add your Telnyx API key first", "warning")
-            return self.app.go("settings")
-        if not self.app.bridge.pick_file(self.load, lambda msg: self.app.toast(msg, "error")):
-            self.app.open_desktop_picker(self.load)
-
-    # ----- configure
-
-    def load(self, path):
-        path = Path(path)
-        self.app.toast(f"Reading {path.name}...", "info", 1.5)
-
-        def done(data):
-            self.table, self.detected = data
-            self.source_name = path.name
-            self.source_path = str(path)
-            self.selected_column = self.detected or self.table.columns[0]
-            self.show_config()
-
-        background(lambda: self.app.service.load_table(path), done,
-                   lambda e: self.app.toast(friendly_error(e), "error"))
-
-    def show_config(self):
-        self.state = "config"
-        page = self.page()
-        card = Card(line=T.border_hi)
-        card.add_widget(Text(role="title", text=self.source_name))
-        card.add_widget(Text(role="caption", text=f"{len(self.table):,} rows  |  {len(self.table.columns)} columns"))
-        card.add_widget(SectionTitle(text="Phone number column", icon="table"))
-        self.column_widgets = []
-        sample_row = self.table.rows[0] if self.table.rows else {}
-        for name in self.table.columns:
-            option = Factory.ColumnOption(name=name, sample=str(sample_row.get(name, ""))[:40],
-                                          detected=name == self.detected, selected=name == self.selected_column)
-            option.bind(on_release=lambda w: self.select_column(w.name))
-            self.column_widgets.append(option)
-            card.add_widget(option)
-        if not self.detected:
-            card.add_widget(Text(role="caption", text="No phone column was detected automatically. Pick the right one.", color=T.warn))
-        self.force_row = Factory.SwitchRow(title="Force fresh lookups", subtitle="Ignore cached results")
-        card.add_widget(self.force_row)
-        review = AppButton(text="Review estimate", icon="insights")
-        review.bind(on_release=lambda *_: self.review(review))
-        card.add_widget(review)
-        cancel = AppButton(text="Choose another file", icon="close", variant="ghost")
-        cancel.bind(on_release=lambda *_: self.show_idle())
-        card.add_widget(cancel)
-        page.add_widget(card)
-
-    def select_column(self, name):
-        self.selected_column = name
-        for widget in self.column_widgets:
-            widget.selected = widget.name == name
-
-    def review(self, button):
-        button.busy = True
-        force = self.force_row.active
-
-        def done(data):
-            button.busy = False
-            self.prepared, self.estimate = data
-            self.confirm_estimate(force)
-
-        def failed(exc):
-            button.busy = False
-            self.app.toast(friendly_error(exc), "error")
-
-        background(lambda: self.app.service.prepare(self.table, self.selected_column, self.source_path, force),
-                   done, failed)
-
-    def confirm_estimate(self, force):
-        est = self.estimate
-        settings = self.app.service.settings()
-        body = BoxLayout(orientation="vertical", size_hint_y=None, spacing=0)
-        body.bind(minimum_height=body.setter("height"))
-        fill_rows(body, [
-            ("Total rows", f"{est.total_rows:,}", T.text, True),
-            ("Invalid (free)", f"{est.invalid:,}", T.danger if est.invalid else T.text, True),
-            ("Duplicates (free)", f"{est.duplicates:,}", T.text, True),
-            ("Unique valid", f"{est.unique_valid:,}", T.text, True),
-            ("From cache", f"{est.cached:,}", T.info, True),
-            ("API lookups", f"{est.to_lookup:,}", T.accent, True),
-            ("Estimated cost", f"${est.estimated_cost:,.4f}", T.warn, True),
-            ("Throttle", f"{settings['requests_per_second']} req/s  x{settings['concurrency']}", T.muted, True),
-        ])
-        body.add_widget(Text(role="caption", text="Cost uses your configured per-lookup rate. Confirm current pricing with Telnyx.", font_size=dp(12)))
-        Dialog(title="Start bulk job?", icon="insights", body=body,
-               buttons=[("Cancel", "ghost", None), ("Start", "primary", lambda: self.start(force))]).open()
-
-    # ----- running
-
-    def start(self, force):
-        def created(job_id):
-            self.run(job_id)
-
-        background(lambda: self.app.service.create_job(self.prepared, force), created,
-                   lambda e: self.app.toast(friendly_error(e), "error"))
-
-    def resume(self, job_id):
-        if not self.app.key_ok:
-            self.app.toast("Add your Telnyx API key first", "warning")
-            return self.app.go("settings")
-        self.run(job_id)
-
-    def run(self, job_id):
-        self.state = "running"
-        self.job_id = job_id
-        self.stop_event = threading.Event()
-        page = self.page()
-        card = Card(line=T.border_hi)
-        card.add_widget(Text(role="title", text=f"Job #{job_id} running"))
-        card.add_widget(Text(role="caption", text="Keep the app open. Progress is saved continuously and can be resumed."))
-        self.progress = Factory.ProgressTrack(indeterminate=True)
-        card.add_widget(self.progress)
-        self.progress_label = Text(role="mono", text="Preparing...")
-        card.add_widget(self.progress_label)
-        stop = AppButton(text="Stop", icon="stop", variant="danger_outline")
-        stop.bind(on_release=lambda *_: self.stop(stop))
-        card.add_widget(stop)
-        page.add_widget(card)
-        self.app.keep_awake(True)
-        background(lambda: self.app.service.run_job(job_id, progress=self._progress, stop_event=self.stop_event),
-                   lambda summary: self.finished(job_id, summary, None),
-                   lambda exc: self.finished(job_id, None, exc))
-
-    def _progress(self, done, total, _result):
-        self._update_progress(done, total)
-
-    @mainthread
-    def _update_progress(self, done, total):
-        if self.state != "running":
-            return
-        self.progress.indeterminate = False
-        self.progress.value = done / total if total else 1
-        self.progress_label.text = f"{done:,} / {total:,} unique numbers"
-
-    def stop(self, button):
-        if self.stop_event:
-            self.stop_event.set()
-            button.busy = True
-            button.busy_text = "Stopping after this batch..."
-
-    def finished(self, job_id, summary, error):
-        self.app.keep_awake(False)
-        if error is not None:
-            self.app.toast(friendly_error(error), "error", 5)
-        self.open_job(job_id, summary)
-        self.app.refresh_key_state()
-
-    # ----- results
-
-    def open_job(self, job_id, summary=None):
-        def load():
-            job = self.app.service.job(job_id)
-            folder = Path(job["export_dir"]) if job and job.get("export_dir") else None
-            if folder is None or not folder.exists():
-                folder = self.app.service.export_job(job_id)
-                job = self.app.service.job(job_id)
-            return job, self.app.service.job_buckets(job_id), folder
-
-        background(load, lambda data: self.show_done(*data, summary),
-                   lambda e: self.app.toast(friendly_error(e), "error"))
-
-    def show_done(self, job, buckets, folder, summary):
-        self.state = "done"
-        self.job_id = job["id"]
-        self.export_folder = folder
-        self.saved = None
-        page = self.page()
-        status = job["status"]
-        ok = status == "completed"
-        card = Card(line=T.border_hi if ok else with_alpha_safe(T.warn))
-        header = BoxLayout(size_hint_y=None, height=dp(30), spacing=dp(10))
-        header.add_widget(Factory.Icon(icon="check" if ok else "warning", color=T.accent if ok else T.warn,
-                                       pos_hint={"center_y": .5}))
-        header.add_widget(Text(role="title", text=f"Job #{job['id']} {status}", pos_hint={"center_y": .5}))
-        card.add_widget(header)
-        meta = f"{Path(job['source_file']).name}  |  {job['total_rows']:,} rows"
-        if summary is not None:
-            meta += f"  |  {summary.api_calls:,} API calls, {summary.cache_hits:,} cached"
-        card.add_widget(Text(role="caption", text=meta))
-        if job.get("error") and not ok:
-            card.add_widget(Text(role="caption", text=job["error"], color=T.warn))
-        total = sum(buckets.values()) or 1
-        for bucket in BUCKET_ORDER:
-            count = buckets.get(bucket, 0)
-            if bucket == "PENDING" and not count:
-                continue
-            card.add_widget(BarRow(title=bucket, count=count, fraction=count / total,
-                                   tone=CLASS_COLORS.get(bucket, T.muted)))
-        page.add_widget(card)
-        actions = Card()
-        actions.add_widget(Text(role="title", text="Results files"))
-        actions.add_widget(Text(role="caption", text="MOBILE, LANDLINE, VOIP, OTHER, UNKNOWN, INVALID and FAILED CSVs plus COMPLETE_RESULTS.xlsx, with your original columns and row order."))
-        save = AppButton(text="Save to Downloads", icon="download")
-        save.bind(on_release=lambda *_: self.save_exports(save))
-        actions.add_widget(save)
-        if self.app.bridge.can_share:
-            self.share_button = AppButton(text="Share XLSX", icon="share", variant="outline", disabled=True)
-            self.share_button.bind(on_release=lambda *_: self.share())
-            actions.add_widget(self.share_button)
-        if not ok:
-            resume = AppButton(text="Resume job", icon="resume", variant="outline")
-            resume.bind(on_release=lambda *_: self.resume(job["id"]))
-            actions.add_widget(resume)
-        new = AppButton(text="New bulk job", icon="upload", variant="ghost")
-        new.bind(on_release=lambda *_: self.show_idle())
-        actions.add_widget(new)
-        page.add_widget(actions)
-
-    def save_exports(self, button):
-        files = sorted(p for p in self.export_folder.iterdir() if p.is_file())
-        button.busy = True
-
-        def done(saved):
-            button.busy = False
-            self.saved = next((s for s in saved if s.name == "COMPLETE_RESULTS.xlsx"), None)
-            if getattr(self, "share_button", None) is not None:
-                self.share_button.disabled = self.saved is None
-            location = saved[0].location.rsplit("/", 1)[0] if saved else ""
-            self.app.toast(f"Saved {len(saved)} files to {location}", "check", 4.5)
-
-        def failed(message):
-            button.busy = False
-            self.app.toast(message, "error")
-
-        self.app.bridge.save_files(files, self.export_folder.name, done, failed)
-
-    def share(self):
-        if self.saved is None or not self.app.bridge.share(self.saved):
-            self.app.toast("Save the files first", "info")
-
-
-def with_alpha_safe(color, alpha=0.5):
-    return theme.with_alpha(color, alpha)
-
-
 class HistoryScreen(BaseScreen):
     _event = None
 
@@ -625,27 +324,6 @@ class HistoryScreen(BaseScreen):
         if value:
             Clipboard.copy(value)
             self.app.toast("Number copied", "check", 1.8)
-
-    def export(self, bucket):
-        def saved_ok(saved):
-            target = saved[0]
-            message = f"Saved {target.name} to {target.location.rsplit('/', 1)[0]}"
-            if self.app.bridge.can_share:
-                Dialog(title="Export saved", icon="check", body=Text(role="caption", text=message),
-                       buttons=[("Close", "ghost", None),
-                                ("Share", "primary", lambda: self.app.bridge.share(target, "Share export"))]).open()
-            else:
-                self.app.toast(message, "check", 4.5)
-
-        def exported(data):
-            path, count = data
-            if count == 0:
-                self.app.toast(f"No {bucket.lower()} numbers stored yet", "info")
-                return
-            self.app.bridge.save_files([path], "", saved_ok, lambda m: self.app.toast(m, "error"))
-
-        background(lambda: self.app.service.export_bucket(bucket), exported,
-                   lambda e: self.app.toast(friendly_error(e), "error"))
 
 
 class SettingsScreen(BaseScreen):
@@ -954,7 +632,7 @@ class PhoneIntelApp(App):
         self.shell = root
         sm = root.ids.sm
         sm.transition = FadeTransition(duration=0.14)
-        for screen in (HomeScreen(), LookupScreen(), SMSScreen(), BulkScreen(),
+        for screen in (HomeScreen(), LookupScreen(), SMSScreen(),
                        HistoryScreen(), SettingsScreen()):
             sm.add_widget(screen)
         sm.bind(current=self._on_screen)
@@ -1017,14 +695,6 @@ class PhoneIntelApp(App):
             sm.current = "home"
             return True
         return self.bridge.minimize()
-
-    def open_desktop_picker(self, callback):
-        from kivy.uix.filechooser import FileChooserListView
-        chooser = FileChooserListView(path=str(Path.home()), filters=["*.csv", "*.xlsx", "*.txt"],
-                                      size_hint_y=None, height=dp(360))
-        Dialog(title="Choose file", icon="folder", body=chooser,
-               buttons=[("Cancel", "ghost", None),
-                        ("Open", "primary", lambda: chooser.selection and callback(chooser.selection[0]))]).open()
 
     def on_pause(self):
         return True

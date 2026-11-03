@@ -7,8 +7,6 @@ __pycache__/
 venv/
 terminal/data/*
 !terminal/data/.gitkeep
-terminal/exports/*
-!terminal/exports/.gitkeep
 android/.buildozer/
 android/bin/
 ui-shots/

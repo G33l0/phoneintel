@@ -1,5 +1,4 @@
 import io
-import re
 
 import pytest
 from rich.console import Console
@@ -35,15 +34,15 @@ def test_rejects_implausible_key(tmp_path):
 
 
 @pytest.mark.parametrize("name,value,expected", [
-    ("concurrency", "8", "8"), ("requests_per_second", "2.5", "2.5"), ("default_region", "gb", "GB"),
+    ("max_retries", "8", "8"), ("request_timeout", "20", "20"), ("default_region", "gb", "GB"),
 ])
 def test_validate_setting(name, value, expected):
     assert validate_setting(name, value) == expected
 
 
-@pytest.mark.parametrize("name,value", [("concurrency", "0"), ("concurrency", "1.5"),
+@pytest.mark.parametrize("name,value", [("max_retries", "11"), ("max_retries", "1.5"),
                                         ("default_region", "USA"), ("unknown", "1"),
-                                        ("requests_per_second", "x")])
+                                        ("request_timeout", "x")])
 def test_validate_setting_rejects(name, value):
     with pytest.raises(ValueError):
         validate_setting(name, value)
@@ -59,32 +58,33 @@ def make_app(tmp_path, monkeypatch, inputs, width=100):
 
 @pytest.mark.parametrize("width", [100, 50])
 def test_first_screen_is_menu_and_exit_works(tmp_path, monkeypatch, width):
-    app, buffer = make_app(tmp_path, monkeypatch, "12\n", width)
+    app, buffer = make_app(tmp_path, monkeypatch, "8\n", width)
     app.run()
     output = buffer.getvalue()
     assert "MAIN MENU" in output
     for label in ("Single Phone Number Lookup", "Telnyx API Configuration", "Exit"):
         assert label in output
+    assert "Bulk" not in output and "Export" not in output
 
 
 def test_menu_options_without_key_are_safe(tmp_path, monkeypatch):
-    inputs = "1\n\n2\n\n10\n\n4\n\n5\n\n6\n\n7\n\n8\n\n11\n\n3\n1\n\n12\n"
+    # 1 lookup (needs key), 6 test connection (needs key), 4 stats, 7 info, 3->1 recent, 8 exit
+    inputs = "1\n\n6\n\n4\n\n7\n\n3\n1\n\n8\n"
     app, buffer = make_app(tmp_path, monkeypatch, inputs)
     app.run()
     output = buffer.getvalue()
-    assert output.count("No Telnyx API key configured") == 3
-    assert "Exported 0 unique mobile" in output
-    assert "PROCESSING STATISTICS" in output and "APPLICATION INFORMATION" in output
-    assert len(list((tmp_path / "exports").glob("*.csv"))) == 4
+    assert output.count("No Telnyx API key configured") == 2
+    assert "STATISTICS" in output and "APPLICATION INFORMATION" in output
 
 
 def test_configure_setting_via_menu(tmp_path, monkeypatch):
-    app, buffer = make_app(tmp_path, monkeypatch, "9\n2\n7\n\n0\n\n12\n")
+    # 5 configure -> setting #2 (max_retries) -> value 7 -> back -> exit
+    app, buffer = make_app(tmp_path, monkeypatch, "5\n2\n7\n\n0\n\n8\n")
     app.run()
     assert app.config.db_path.exists()
     from database import Database
     db = Database(app.config.db_path)
-    assert db.get_setting("concurrency") == "7"
+    assert db.get_setting("max_retries") == "7"
     db.close()
 
 
@@ -113,9 +113,8 @@ def _fake_get(self, url, params=None, headers=None, timeout=None):
 def test_end_to_end_with_mocked_http(tmp_path, monkeypatch):
     import requests
     monkeypatch.setattr(requests.Session, "get", _fake_get)
-    source = tmp_path / "numbers.csv"
-    source.write_text("name,phone\nA,6502530000\nB,2125551234\nC,bad\nD,650-253-0000\n", encoding="utf-8")
-    inputs = (f"10\n\n1\n6502530000\n\n2\n{source}\n2\nn\ny\n\n4\n\n12\n")
+    # 6 test connection, 1 single lookup, 8 exit
+    inputs = "6\n\n1\n6502530000\n\n8\n"
     app, buffer = make_app(tmp_path, monkeypatch, inputs)
     app.config.save_api_key(KEY)
     app.run()
@@ -123,7 +122,3 @@ def test_end_to_end_with_mocked_http(tmp_path, monkeypatch):
     assert KEY not in output
     assert "ACCEPTED" in output and "12.50" in output
     assert "LOOKUP RESULT" in output and "MOBILE" in output and "Carrier X" in output
-    assert "JOB ESTIMATE" in output and re.search(r"API lookups required\s+1\s", output)
-    assert "Exported 1 unique mobile" in output
-    folders = list((tmp_path / "exports").glob("job_*"))
-    assert len(folders) == 1 and (folders[0] / "COMPLETE_RESULTS.xlsx").exists()

@@ -1,4 +1,3 @@
-import threading
 from pathlib import Path
 
 import pytest
@@ -54,50 +53,10 @@ def test_lookup_cache_and_stats(service):
 
 
 def test_settings_validation(service):
-    assert service.update_settings({"concurrency": "6", "bogus": "1"}) == {"concurrency": "6"}
-    assert service.settings()["concurrency"] == "6"
+    assert service.update_settings({"max_retries": "6", "bogus": "1"}) == {"max_retries": "6"}
+    assert service.settings()["max_retries"] == "6"
     with pytest.raises(ValueError):
-        service.update_settings({"concurrency": "500"})
-
-
-def test_bulk_flow_from_background_thread(service, tmp_path):
-    service.save_key(KEY)
-    source = tmp_path / "in.csv"
-    source.write_text("name,phone\nA,6502530000\nB,2125551234\nC,nope\nD,650 253 0000\n", encoding="utf-8")
-    table, detected = service.load_table(source)
-    assert detected == "phone"
-    prepared, est = service.prepare(table, detected, str(source), False)
-    assert est.to_lookup == 2 and est.invalid == 1 and est.duplicates == 1
-    job_id = service.create_job(prepared, False)
-    outcome = {}
-
-    def worker():
-        outcome["summary"] = service.run_job(job_id, progress=lambda *a: None, stop_event=threading.Event())
-
-    thread = threading.Thread(target=worker)
-    thread.start()
-    thread.join(10)
-    assert outcome["summary"].status == "completed"
-    buckets = service.job_buckets(job_id)
-    assert buckets["MOBILE"] == 2 and buckets["LANDLINE"] == 1 and buckets["INVALID"] == 1
-    folder = Path(service.job(job_id)["export_dir"])
-    assert (folder / "COMPLETE_RESULTS.xlsx").exists() and (folder / "MOBILE.csv").exists()
-    path, count = service.export_bucket("MOBILE")
-    assert count == 1 and path.exists()
-    assert service.jobs()[0]["id"] == job_id
-
-
-def test_stale_running_job_recovered_on_start(service, tmp_path):
-    source = tmp_path / "in.txt"
-    source.write_text("6502530000\n", encoding="utf-8")
-    table, column = service.load_table(source)
-    prepared, _ = service.prepare(table, column, str(source), False)
-    job_id = service.create_job(prepared, False)
-    from database import Database
-    with Database(service.config.db_path) as db:
-        db.update_job(job_id, status="running")
-    restarted = services.PhoneIntelService(service.config.base_dir)
-    assert restarted.resumable_jobs()[0]["id"] == job_id
+        service.update_settings({"max_retries": "500"})
 
 
 def test_free_validation_offline_and_rate_limited(service):

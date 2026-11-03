@@ -1,6 +1,6 @@
 import pytest
 
-from classifier import (Classification, LookupStatus, export_bucket, normalize_line_type,
+from classifier import (Classification, LookupStatus, normalize_line_type,
                         parse_lookup_response)
 from tests.conftest import lookup_payload
 
@@ -28,15 +28,6 @@ def test_line_type_mapping(raw, expected):
     assert normalize_line_type(raw) == expected
 
 
-@pytest.mark.parametrize("status,classification,bucket", [
-    ("SUCCESS", "MOBILE", "MOBILE"), ("SUCCESS", "LANDLINE", "LANDLINE"),
-    ("SUCCESS", "FIXED_VOIP", "VOIP"), ("SUCCESS", "NON_FIXED_VOIP", "VOIP"),
-    ("SUCCESS", "OTHER_VOIP", "VOIP"), ("SUCCESS", "TOLL_FREE", "OTHER"),
-    ("SUCCESS", "OTHER", "OTHER"), ("SUCCESS", "UNKNOWN", "UNKNOWN"),
-    ("INVALID", "INVALID", "INVALID"), ("FAILED", "UNKNOWN", "FAILED"),
-])
-def test_export_buckets(status, classification, bucket):
-    assert export_bucket(status, classification) == bucket
 
 
 def test_parse_successful_response():

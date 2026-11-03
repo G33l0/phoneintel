@@ -13,34 +13,22 @@ TELNYX_BASE_URL = "https://api.telnyx.com/v2"
 
 DEFAULT_SETTINGS = {
     "default_region": "US",
-    "concurrency": "4",
-    "requests_per_second": "5",
     "max_retries": "3",
     "request_timeout": "15",
     "cache_days": "30",
-    "batch_size": "100",
-    "cost_per_lookup": "0.0025",
 }
 
 SETTING_LIMITS = {
-    "concurrency": (1, 20),
-    "requests_per_second": (0.2, 40),
     "max_retries": (0, 10),
     "request_timeout": (3, 120),
     "cache_days": (0, 3650),
-    "batch_size": (1, 1000),
-    "cost_per_lookup": (0, 10),
 }
 
 SETTING_DESCRIPTIONS = {
     "default_region": "Region used for numbers without a + prefix",
-    "concurrency": "Parallel API workers during bulk jobs",
-    "requests_per_second": "Global API throttle (requests per second)",
     "max_retries": "Retries for 429, 5xx and network failures",
     "request_timeout": "HTTP timeout in seconds",
     "cache_days": "Days a successful lookup stays cached (0 = off)",
-    "batch_size": "Numbers per committed batch",
-    "cost_per_lookup": "Estimated USD cost per lookup (verify with Telnyx)",
 }
 
 
@@ -62,16 +50,11 @@ class AppConfig:
         return self.base_dir / "data"
 
     @property
-    def export_dir(self) -> Path:
-        return self.base_dir / "exports"
-
-    @property
     def db_path(self) -> Path:
         return self.data_dir / "phoneintel.db"
 
     def ensure_dirs(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        self.export_dir.mkdir(parents=True, exist_ok=True)
 
     def api_key(self) -> str | None:
         key = os.environ.get(API_KEY_VAR)
