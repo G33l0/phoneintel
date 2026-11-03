@@ -69,6 +69,14 @@ class PhoneIntelService:
                 raise ValueError("Add your Telnyx API key in Settings first")
             return engine.lookup(raw, force=force)
 
+    def free_validations_remaining(self) -> int:
+        with self._db() as db:
+            return self._engine(db).free_validations_remaining()
+
+    def free_validate(self, raw: str):
+        with self._db() as db:
+            return self._engine(db).free_validate_rate_limited(raw)
+
     def stats(self) -> dict:
         with self._db() as db:
             return db.global_stats()

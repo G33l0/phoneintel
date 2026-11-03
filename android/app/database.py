@@ -67,6 +67,10 @@ CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS free_usage (
+    day TEXT PRIMARY KEY,
+    count INTEGER NOT NULL DEFAULT 0
+);
 """
 
 RESUMABLE_STATUSES = ("running", "interrupted", "paused")
@@ -103,6 +107,27 @@ class Database:
 
     def all_settings(self) -> dict:
         return {key: self.get_setting(key) for key in DEFAULT_SETTINGS}
+
+    def free_validations_today(self, day: str) -> int:
+        row = self.conn.execute("SELECT count FROM free_usage WHERE day = ?", (day,)).fetchone()
+        return row["count"] if row else 0
+
+    def try_consume_free_validation(self, day: str, daily_limit: int) -> tuple[bool, int]:
+        """Atomically claim one free validation for `day`. Returns (allowed, remaining_after).
+
+        The claim is a single guarded UPDATE: SQLite serialises writers, so the WHERE
+        `count < limit` guard is re-checked against committed state for each caller and the
+        counter can never exceed the limit, even with many connections racing.
+        """
+        self.conn.execute(
+            "INSERT OR IGNORE INTO free_usage (day, count) VALUES (?, 0)", (day,))
+        cursor = self.conn.execute(
+            "UPDATE free_usage SET count = count + 1 WHERE day = ? AND count < ?",
+            (day, daily_limit))
+        self.conn.commit()
+        if cursor.rowcount != 1:
+            return False, 0
+        return True, max(0, daily_limit - self.free_validations_today(day))
 
     def save_result(self, result: LookupResult, commit: bool = True) -> int:
         if result.e164:

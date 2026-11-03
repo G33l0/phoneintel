@@ -6,7 +6,7 @@ source.dir = app
 source.include_exts = py,kv,png,ttf,txt
 source.exclude_dirs = __pycache__
 source.exclude_patterns = picked/*
-version = 1.0.0
+version = 1.1.0
 
 # Pure-Python dependencies only. The kivy recipe already brings requests, urllib3, idna,
 # certifi and chardet. phonenumberslite provides the same "phonenumbers" API without the

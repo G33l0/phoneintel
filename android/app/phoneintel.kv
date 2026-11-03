@@ -780,11 +780,46 @@
                     icon: "search"
                     busy_text: "Querying Telnyx..."
                     on_release: root.run_lookup()
+                AppButton:
+                    id: free_btn
+                    text: "Free offline check"
+                    icon: "shield"
+                    variant: "outline"
+                    busy_text: "Checking..."
+                    on_release: root.run_free()
+                Text:
+                    role: "caption"
+                    text: "Free check validates format and region offline with no API key. Limited to 2/day."
             BoxLayout:
                 id: result_holder
                 orientation: "vertical"
                 size_hint_y: None
                 height: self.minimum_height
+
+<FreeResultCard>:
+    line: T.border_hi
+    spacing: dp(6)
+    BoxLayout:
+        size_hint_y: None
+        height: dp(34)
+        spacing: dp(10)
+        Label:
+            text: root.number
+            font_name: FONT_MONO_BOLD
+            font_size: sp(19)
+            color: T.text
+            halign: "left"
+            valign: "middle"
+            text_size: self.size
+            shorten: True
+        Badge:
+            color_key: root.classification
+            pos_hint: {"center_y": .5}
+    BoxLayout:
+        id: rows
+        orientation: "vertical"
+        size_hint_y: None
+        height: self.minimum_height
 
 <ResultCard>:
     spacing: dp(6)

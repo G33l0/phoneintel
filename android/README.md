@@ -4,6 +4,8 @@ This folder contains a native Android version built with Kivy and packaged with 
 python-for-android. It reuses the same engine modules as the terminal app (validator,
 classifier, Telnyx client, database, bulk processor, exporter).
 
+The Lookup screen also offers a **Free offline check** (no API key, 2/day) that validates format, region and a line-type estimate from bundled numbering-plan data without contacting Telnyx.
+
 **Screens:** Home (overview stats, line-type breakdown), Lookup, Bulk (pick a CSV/XLSX/TXT
 file, confirm the column, review the cost estimate, run, stop/resume), History (search, details,
 export Mobile/Landline/VoIP/Other) and Settings (API key, connection test, engine settings).

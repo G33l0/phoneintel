@@ -122,6 +122,33 @@ class ResultCard(Card):
         fill_rows(self.ids.rows, result_rows(result)[1:])
 
 
+class FreeResultCard(Card):
+    number = StringProperty("")
+    classification = StringProperty("UNKNOWN")
+
+    def show(self, result, remaining):
+        self.number = result.e164 or result.input or "-"
+        self.classification = result.classification_hint or ("INVALID" if not result.valid else "UNKNOWN")
+        if result.valid:
+            rows = [
+                ("Phone number", result.e164 or "-", T.text, True),
+                ("Valid", "Yes", T.accent, True),
+                ("Country", result.country or "-", T.text, False),
+                ("Area / region", result.region or "-", T.text, False),
+                ("National format", result.national_format or "-", T.text, True),
+                ("Line type (estimate)", result.line_type_hint or "Unknown", T.text, False),
+            ]
+        else:
+            rows = [
+                ("Input", result.input or "-", T.text, True),
+                ("Valid", "No", T.danger, True),
+                ("Reason", result.error or "Invalid number", T.warn, False),
+            ]
+        rows.append(("Source", "Offline estimate - not a carrier lookup", T.muted, False))
+        rows.append(("Free checks left today", str(remaining), T.muted, True))
+        fill_rows(self.ids.rows, rows)
+
+
 class HistoryRow(RecycleDataViewBehavior, ButtonBehavior, BoxLayout):
     number = StringProperty("")
     meta = StringProperty("")
@@ -218,6 +245,46 @@ class LookupScreen(BaseScreen):
     def _failed(self, exc):
         self.ids.go.busy = False
         self.app.toast(friendly_error(exc), "error")
+
+    def on_enter(self, *_):
+        self.refresh_free()
+
+    def refresh_free(self):
+        background(self.app.service.free_validations_remaining, self._set_free_remaining)
+
+    @mainthread
+    def _set_free_remaining(self, remaining):
+        self.ids.free_btn.text = f"Free check  -  {remaining} left"
+        self.ids.free_btn.disabled = remaining <= 0
+
+    def run_free(self):
+        raw = self.ids.number.text.strip()
+        if not raw:
+            self.ids.number.error = "Enter a phone number"
+            return
+        self.ids.number.ids.inp.focus = False
+        self.ids.free_btn.busy = True
+        background(lambda: self.app.service.free_validate(raw), self._free_done, self._failed_free)
+
+    def _failed_free(self, exc):
+        self.ids.free_btn.busy = False
+        self.app.toast(friendly_error(exc), "error")
+
+    def _free_done(self, outcome):
+        self.ids.free_btn.busy = False
+        self.refresh_free()
+        if not outcome.allowed:
+            self.app.toast(outcome.message or "Daily free limit reached", "warning", 4.5)
+            return
+        result = outcome.result
+        holder = self.ids.result_holder
+        holder.clear_widgets()
+        card = FreeResultCard()
+        card.show(result, outcome.remaining)
+        holder.add_widget(card)
+        if not result.valid:
+            self.ids.number.error = result.error or "Invalid number"
+        Clock.schedule_once(lambda *_: self._scroll_to(card), 0.1)
 
 
 class BulkScreen(BaseScreen):

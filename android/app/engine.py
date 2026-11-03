@@ -1,8 +1,10 @@
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from classifier import LookupResult, LookupStatus, failed_result, invalid_result, parse_lookup_response
-from config import AppConfig
+from config import FREE_VALIDATION_DAILY_LIMIT, AppConfig
 from database import Database
+from free_validate import FreeValidationResult, validate_offline
 from telnyx_client import AuthenticationError, RateLimiter, TelnyxClient, TelnyxError
 from validator import ValidationResult, normalize
 
@@ -33,6 +35,15 @@ class EngineSettings:
         )
 
 
+@dataclass
+class FreeValidationOutcome:
+    allowed: bool
+    remaining: int
+    limit: int
+    result: FreeValidationResult | None = None
+    message: str | None = None
+
+
 class PhoneIntelEngine:
     def __init__(self, db: Database, client: TelnyxClient | None, settings: EngineSettings):
         self.db = db
@@ -49,6 +60,30 @@ class PhoneIntelEngine:
 
     def validate(self, raw) -> ValidationResult:
         return normalize(raw, self.settings.default_region)
+
+    def free_validate(self, raw) -> FreeValidationResult:
+        return validate_offline(raw, self.settings.default_region)
+
+    def free_validations_remaining(self) -> int:
+        day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        used = self.db.free_validations_today(day)
+        return max(0, FREE_VALIDATION_DAILY_LIMIT - used)
+
+    def free_validate_rate_limited(self, raw) -> FreeValidationOutcome:
+        limit = FREE_VALIDATION_DAILY_LIMIT
+        day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        if raw is None or not str(raw).strip():
+            return FreeValidationOutcome(
+                allowed=True, remaining=self.free_validations_remaining(), limit=limit,
+                result=validate_offline(raw, self.settings.default_region))
+        allowed, remaining = self.db.try_consume_free_validation(day, limit)
+        if not allowed:
+            return FreeValidationOutcome(
+                allowed=False, remaining=0, limit=limit,
+                message=f"Free validation limit reached ({limit}/day). Try again tomorrow (UTC).")
+        return FreeValidationOutcome(
+            allowed=True, remaining=remaining, limit=limit,
+            result=validate_offline(raw, self.settings.default_region))
 
     def cached(self, e164: str) -> tuple[int, LookupResult] | None:
         return self.db.cached_result(e164, self.settings.cache_days)

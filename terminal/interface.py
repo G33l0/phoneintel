@@ -52,7 +52,8 @@ MENU = [
     ("9", "Telnyx API Configuration"),
     ("10", "Test API Connection"),
     ("11", "Application Information"),
-    ("12", "Exit"),
+    ("12", "Free Phone Validation (offline, no key)"),
+    ("13", "Exit"),
 ]
 
 CLASS_STYLES = {
@@ -75,7 +76,7 @@ class App:
             "4": lambda: self.export_bucket("MOBILE"), "5": lambda: self.export_bucket("LANDLINE"),
             "6": lambda: self.export_bucket("VOIP"), "7": lambda: self.export_bucket("OTHER"),
             "8": self.statistics, "9": self.configure, "10": self.test_connection,
-            "11": self.information,
+            "11": self.information, "12": self.free_validation,
         }
 
     @property
@@ -90,7 +91,7 @@ class App:
             while True:
                 self.show_menu()
                 choice = self.ask("Select an option", choices=[k for k, _ in MENU], show_choices=False)
-                if choice == "12":
+                if choice == "13":
                     self.console.print("[accent]Session closed. Goodbye.[/]")
                     return
                 self.console.clear()
@@ -197,6 +198,46 @@ class App:
         except AuthenticationError as exc:
             return self.error(f"{exc}\nCheck your API key with option 9.")
         self.show_result(result)
+
+    def free_validation(self) -> None:
+        self.header("FREE PHONE VALIDATION")
+        engine = self.engine()
+        remaining = engine.free_validations_remaining()
+        self.console.print(f"[dim]Offline validation - no Telnyx, no API key. "
+                           f"Free uses left today:[/] [value]{remaining}[/]")
+        if remaining <= 0:
+            return self.error("You have used today's free validations. This resets at 00:00 UTC.\n"
+                              "Use option 1 for a full carrier lookup via Telnyx.")
+        raw = self.ask(f"Enter phone number (default region {engine.settings.default_region})").strip()
+        if not raw:
+            return self.error("No number entered. (Your free allowance was not used.)")
+        outcome = engine.free_validate_rate_limited(raw)
+        if not outcome.allowed:
+            return self.error(outcome.message or "Free validation limit reached.")
+        self.show_free_result(outcome)
+
+    def show_free_result(self, outcome) -> None:
+        result = outcome.result
+        if not result.valid:
+            rows = [("Input", result.input or "-"),
+                    ("Valid", Text("NO", style="err")),
+                    ("Reason", Text(result.error or "Invalid number", style="warn"))]
+        else:
+            hint = result.classification_hint or "UNKNOWN"
+            rows = [
+                ("Input", result.input),
+                ("Phone number", result.e164 or "-"),
+                ("Valid", Text("YES", style="ok")),
+                ("Country", result.country or "-"),
+                ("Area / region", result.region or "-"),
+                ("National format", result.national_format or "-"),
+                ("Line type (estimate)", Text(f"{result.line_type_hint}", style=CLASS_STYLES.get(hint, "value"))),
+            ]
+        rows.append(("Source", "Offline number-plan data (not a carrier lookup)"))
+        rows.append(("Free uses left today", str(outcome.remaining)))
+        self.console.print(self.panel(self.key_value(rows), "FREE VALIDATION"))
+        self.console.print("[dim]Line type here is an estimate from numbering-plan ranges. "
+                           "For carrier-confirmed results use option 1 (Telnyx).[/]")
 
     def show_result(self, result: LookupResult) -> None:
         port = result.ported_status or "Not provided"
