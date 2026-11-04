@@ -99,7 +99,7 @@ pip install buildozer==1.6.0
 sudo apt install -y git zip unzip openjdk-17-jdk autoconf automake libtool pkg-config cmake \
     build-essential zlib1g-dev libncurses-dev libffi-dev libssl-dev
 # constrain pip and charset-normalizer for the python-for-android build (see ci.yml)
-printf 'pip<26.3\ncharset-normalizer<3\n' > /tmp/pi-constraints.txt
+printf 'pip<26\ncharset-normalizer<3\n' > /tmp/pi-constraints.txt
 cd android && PIP_CONSTRAINT=/tmp/pi-constraints.txt buildozer android debug
 ```
 
