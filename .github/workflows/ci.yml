@@ -1,0 +1,156 @@
+name: PHONEINTEL CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r terminal/requirements-dev.txt
+      - name: Terminal app tests (CMD / PowerShell / Termux / Linux)
+        working-directory: terminal
+        run: python -m pytest -q
+      - name: Android engine copy is in sync with terminal/
+        run: python android/sync_core.py --check
+      - name: Android service tests
+        working-directory: android
+        run: python -m pytest -q tests
+      - name: Termux / Linux launcher smoke test
+        working-directory: terminal
+        run: printf '8\n' | ./phoneintel.sh | tee launcher.log && grep -q "MAIN MENU" launcher.log
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Terminal app tests on Windows
+        working-directory: terminal
+        shell: cmd
+        run: |
+          python -m pip install -r requirements-dev.txt
+          python -m pytest -q
+      - name: CMD launcher smoke test (phoneintel.bat)
+        working-directory: terminal
+        shell: cmd
+        run: |
+          (echo 8) | phoneintel.bat > launcher.log 2>&1
+          type launcher.log
+          findstr /c:"MAIN MENU" launcher.log
+
+  ui:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Kivy and dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb libgl1 libegl1 libmtdev1 xclip
+          python -m pip install --upgrade pip
+          pip install -r terminal/requirements.txt kivy==2.3.1
+      - name: Render every screen (phone, small phone, tablet)
+        run: |
+          cd android
+          xvfb-run -a -s "-screen 0 2600x2600x24" python tools/ui_snapshot.py ../ui-shots/phone 412 892 2
+          xvfb-run -a -s "-screen 0 2600x2600x24" python tools/ui_snapshot.py ../ui-shots/small 360 640 2
+          xvfb-run -a -s "-screen 0 2600x2600x24" python tools/ui_snapshot.py ../ui-shots/tablet 1280 800 1.5
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ui-screenshots
+          path: ui-shots
+
+  apk:
+    needs: [tests, windows, ui]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            git zip unzip autoconf automake autopoint libtool pkg-config cmake ninja-build \
+            build-essential ccache zlib1g-dev libncurses-dev libffi-dev libssl-dev \
+            libltdl-dev lld patch
+
+      - name: Install buildozer
+        run: |
+          python -m pip install --upgrade pip
+          pip install buildozer==1.6.0 setuptools wheel
+
+      - name: Cache Android SDK/NDK
+        uses: actions/cache@v4
+        with:
+          path: ~/.buildozer
+          key: buildozer-global-${{ runner.os }}-${{ hashFiles('android/buildozer.spec') }}
+          restore-keys: buildozer-global-${{ runner.os }}-
+
+      - name: Build debug APK
+        working-directory: android
+        env:
+          # PIP_CONSTRAINT is honored by every pip invocation p4a runs, including its internal
+          # dependency-resolution dry-run (which strips version pins from the requirements list):
+          #   - pip<26: pip 26.x (both 26.2.2 and 26.3) fail to import on the build venv's
+          #     Python 3.14 (ImportError: capture_logging / BuildDependencyInstallError). p4a runs
+          #     `pip install -U pip`; <26 keeps the venv's bundled, working pip 25.3.
+          #   - charset-normalizer<3: 3.x publishes compiled android wheels that p4a resolves and
+          #     the host pip then rejects; <3 forces the pure-Python 2.1.1 (requests accepts it).
+          PIP_CONSTRAINT: ${{ github.workspace }}/pip-constraints.txt
+        run: |
+          printf 'pip<26\ncharset-normalizer<3\n' > "${{ github.workspace }}/pip-constraints.txt"
+          yes | buildozer -v android debug 2>&1 | tee build.log; exit ${PIPESTATUS[1]}
+
+      - name: Verify APK
+        working-directory: android
+        run: |
+          ls -la bin
+          APK=$(ls bin/*.apk | head -n 1)
+          test -s "$APK"
+          unzip -l "$APK" | grep -E "lib/arm64-v8a/|lib/armeabi-v7a/" | head
+          unzip -l "$APK" | grep -c "\.so$"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: phoneintel-apk
+          path: android/bin/*.apk
+          if-no-files-found: error
+
+      - name: Upload build log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: buildozer-log
+          path: android/build.log

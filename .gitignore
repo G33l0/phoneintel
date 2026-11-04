@@ -5,7 +5,8 @@ __pycache__/
 .pytest_cache/
 .venv/
 venv/
-data/*
-!data/.gitkeep
-exports/*
-!exports/.gitkeep
+terminal/data/*
+!terminal/data/.gitkeep
+android/.buildozer/
+android/bin/
+ui-shots/

@@ -1,0 +1,3 @@
+JetBrains Mono - SIL Open Font License 1.1 (see OFL-JetBrainsMono.txt)
+Material Icons - Apache License 2.0, Copyright Google LLC
+PHONEINTEL logo - original artwork for this project

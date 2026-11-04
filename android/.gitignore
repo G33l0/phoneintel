@@ -1,0 +1,5 @@
+.buildozer/
+bin/
+build.log
+__pycache__/
+app/picked/
